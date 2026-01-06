@@ -345,6 +345,9 @@ if summary_rows:
         + " | "
         + summary_df["analysis"].astype(str)
     )
+    total_count = int(summary_df["count"].sum())
+    st.metric("Total DEGs (sum of summary counts)", total_count)
+    st.caption("Total is a simple sum across summary rows (not de-duplicated).")
     st.dataframe(summary_df, hide_index=True, use_container_width=True)
     st.bar_chart(summary_df.set_index("label")["count"])
 
