@@ -675,7 +675,7 @@ if summary_rows:
             st.caption(
                 "Mouse genes are mapped to human Ensembl orthologs for cross-species de-duplication."
             )
-            with st.expander("Deduplicated contribution breakdown", expanded=False):
+            with st.expander("DEG contribution breakdown", expanded=False):
                 if dedup_total == 0:
                     st.info("No genes available for contribution breakdown at current cutoffs.")
                 else:
@@ -697,11 +697,20 @@ if summary_rows:
                         if series is None or series.values.sum() == 0:
                             st.info("UpSet plot unavailable for empty selection.")
                         else:
-                            fig = plt.figure(figsize=(10, 4))
-                            upset = UpSet(series, subset_size="count", show_counts=True, sort_by="cardinality")
-                            upset.plot(fig=fig)
-                            st.pyplot(fig, use_container_width=True)
-                            plt.close(fig)
+                            try:
+                                fig = plt.figure(figsize=(10, 4))
+                                upset = UpSet(
+                                    series,
+                                    subset_size="count",
+                                    show_counts=False,
+                                    show_percentages=False,
+                                    sort_by="cardinality",
+                                )
+                                upset.plot(fig=fig)
+                                st.pyplot(fig, use_container_width=True)
+                                plt.close(fig)
+                            except Exception:
+                                st.info("UpSet plot failed to render; see tables above for overlap details.")
     else:
         st.info("Ortholog map not found; cross-species de-duplication and overlaps are disabled.")
 
