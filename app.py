@@ -499,9 +499,15 @@ if summary_rows:
         else:
             selected_sets = {label: sets_for_overlap[label] for label in selected}
             data = from_contents(selected_sets)
-            fig = plt.figure(figsize=(8, 4))
-            UpSet(data, show_counts=True, sort_by="degree").plot(fig=fig)
-            st.pyplot(fig, clear_figure=True)
+            if data.empty or data.sum() == 0:
+                st.info("No overlaps to plot for the selected sets at current cutoffs.")
+            else:
+                try:
+                    fig = plt.figure(figsize=(8, 4))
+                    UpSet(data, show_counts=True, sort_by="degree").plot(fig=fig)
+                    st.pyplot(fig, clear_figure=True)
+                except Exception as exc:  # pragma: no cover - plotting backend variability
+                    st.warning(f"Unable to render overlap plot: {exc}")
 else:
     st.info("Summary data not available yet.")
 
