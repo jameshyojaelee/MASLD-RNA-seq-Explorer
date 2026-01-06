@@ -630,31 +630,39 @@ if summary_rows:
     if len(selected) < 2:
         st.info("Select at least two sets to visualize overlaps.")
     else:
-        try:
-            from upsetplot import UpSet, from_contents  # type: ignore
-            import matplotlib.pyplot as plt
-        except ImportError:
-            st.warning("Install upsetplot and matplotlib to view overlap plots.")
+        selected_sets = {label: sets_for_overlap[label] for label in selected}
+        union_size = len(set().union(*selected_sets.values())) if selected_sets else 0
+        if union_size == 0:
+            st.info("No elements to plot for the selected sets at current cutoffs.")
         else:
-            selected_sets = {label: sets_for_overlap[label] for label in selected}
-            union_size = len(set().union(*selected_sets.values())) if selected_sets else 0
-            if union_size == 0:
-                st.info("No elements to plot for the selected sets at current cutoffs.")
+            labels = list(selected_sets.keys())
+            overlap = pd.DataFrame(index=labels, columns=labels, dtype=int)
+            for a in labels:
+                for b in labels:
+                    overlap.loc[a, b] = len(selected_sets[a] & selected_sets[b])
+            st.caption("Pairwise overlap counts")
+            render_table(overlap.reset_index().rename(columns={"index": "set"}))
+
+            try:
+                import altair as alt
+            except Exception:
+                st.info("Altair not available for heatmap rendering.")
             else:
-                try:
-                    data = from_contents(selected_sets)
-                    fig = plt.figure(figsize=(8, 4))
-                    UpSet(data, show_counts=True, sort_by="degree").plot(fig=fig)
-                    st.pyplot(fig, clear_figure=True)
-                except Exception as exc:  # pragma: no cover - plotting backend variability
-                    st.warning(f"Unable to render overlap plot: {exc}")
-                    # Fallback: show pairwise overlap counts
-                    labels = list(selected_sets.keys())
-                    overlap = pd.DataFrame(index=labels, columns=labels, dtype=int)
-                    for a in labels:
-                        for b in labels:
-                            overlap.loc[a, b] = len(selected_sets[a] & selected_sets[b])
-                    st.caption("Fallback: pairwise overlap counts")
-                    render_table(overlap.reset_index().rename(columns={"index": "set"}))
+                heat = (
+                    overlap.reset_index()
+                    .melt(id_vars="index", var_name="set_b", value_name="overlap")
+                    .rename(columns={"index": "set_a"})
+                )
+                heatmap = (
+                    alt.Chart(heat)
+                    .mark_rect()
+                    .encode(
+                        x=alt.X("set_b:N", title="Set B"),
+                        y=alt.Y("set_a:N", title="Set A"),
+                        color=alt.Color("overlap:Q", title="Overlap"),
+                        tooltip=["set_a", "set_b", "overlap"],
+                    )
+                )
+                st.altair_chart(heatmap, use_container_width=True)
 else:
     st.info("Summary data not available yet.")
