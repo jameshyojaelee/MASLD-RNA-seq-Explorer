@@ -27,7 +27,7 @@ elif (APP_DIR / "data").exists():
 else:
     DATA_DIR = None
 
-MCD_PATHS = {
+INHOUSE_MCD_PATHS = {
     "MCD Week 1": ROOT
     / "RNA-seq"
     / "in-house_MCD_RNAseq"
@@ -45,12 +45,32 @@ MCD_PATHS = {
     / "deseq2_results.tsv",
 }
 
+EXTERNAL_MCD_PATHS = {
+    "GSE156918 (external MCD)": ROOT
+    / "RNA-seq"
+    / "other_MCD_RNAseq"
+    / "GSE156918"
+    / "analysis_mcd_vs_control"
+    / "deseq2_mcd_vs_control.tsv",
+    "GSE205974 (external MCD)": ROOT
+    / "RNA-seq"
+    / "other_MCD_RNAseq"
+    / "GSE205974"
+    / "analysis_mcd_vs_control"
+    / "deseq2_mcd_vs_control.tsv",
+}
+
 PATIENT_DATASETS = ["GSE130970", "GSE135251"]
 
-BUNDLED_MCD_FILES = {
+BUNDLED_INHOUSE_MCD_FILES = {
     "MCD Week 1": "mcd_week1.tsv.gz",
     "MCD Week 2": "mcd_week2.tsv.gz",
     "MCD Week 3": "mcd_week3.tsv.gz",
+}
+
+BUNDLED_EXTERNAL_MCD_FILES = {
+    "GSE156918 (external MCD)": "other_mcd_gse156918.tsv.gz",
+    "GSE205974 (external MCD)": "other_mcd_gse205974.tsv.gz",
 }
 
 BUNDLED_PATIENT_FILES = {
@@ -202,10 +222,16 @@ def top_right_count(
     return len(top_right_set(nas_df, other_df, nas_log2fc_cutoff, padj_cutoff))
 
 
-def get_mcd_paths() -> dict[str, Path]:
+def get_inhouse_mcd_paths() -> dict[str, Path]:
     if DATA_DIR is None:
-        return MCD_PATHS
-    return {label: DATA_DIR / filename for label, filename in BUNDLED_MCD_FILES.items()}
+        return INHOUSE_MCD_PATHS
+    return {label: DATA_DIR / filename for label, filename in BUNDLED_INHOUSE_MCD_FILES.items()}
+
+
+def get_external_mcd_paths() -> dict[str, Path]:
+    if DATA_DIR is None:
+        return EXTERNAL_MCD_PATHS
+    return {label: DATA_DIR / filename for label, filename in BUNDLED_EXTERNAL_MCD_FILES.items()}
 
 
 def patient_paths(dataset: str) -> dict[str, Path] | None:
@@ -282,10 +308,11 @@ st.markdown(
     """
 **Overview**
 - **Mouse (in-house MCD)**: Week 1/2/3 MCD vs control contrasts from the in-house MCD diet study.
+- **Mouse (external MCD GEO)**: **GSE156918** and **GSE205974** Control vs MCD contrasts.
 - **Patient (human)**: GEO datasets **GSE130970** and **GSE135251** (NAFLD/NASH/MASLD cohorts).
 - This app reports **upregulated DEGs only** (log2FC > cutoff) and lets you adjust padj/log2FC cutoffs globally or per-dataset.
 
-**Citations / datasets**: GEO **GSE130970**, GEO **GSE135251**, and in-house MCD RNA-seq (week 1–3 diet contrasts).
+**Citations / datasets**: GEO **GSE156918**, **GSE205974**, **GSE130970**, **GSE135251**, and in-house MCD RNA-seq (week 1–3 diet contrasts).
 """
 )
 
@@ -297,13 +324,20 @@ st.caption(
     "and log2FC cutoff applies only to NAS high."
 )
 
-# Load MCD data
-mcd_frames = {}
-for label, path in get_mcd_paths().items():
+# Load MCD data (in-house + external)
+inhouse_mcd_frames = {}
+for label, path in get_inhouse_mcd_paths().items():
     if not path.exists():
-        st.warning(f"Missing MCD file: {path}")
+        st.warning(f"Missing in-house MCD file: {path}")
         continue
-    mcd_frames[label] = load_mcd_tsv(path)
+    inhouse_mcd_frames[label] = load_mcd_tsv(path)
+
+external_mcd_frames = {}
+for label, path in get_external_mcd_paths().items():
+    if not path.exists():
+        st.warning(f"Missing external MCD file: {path}")
+        continue
+    external_mcd_frames[label] = load_mcd_tsv(path)
 
 # Load patient data for both datasets
 patient_data = {}
@@ -330,16 +364,17 @@ summary_rows = []
 summary_sets: dict[str, dict[str, object]] = {}
 raw_sets: dict[str, set[str]] = {}
 dedup_sets: dict[str, set[str]] = {}
+active_labels: list[str] = []
 
-mcd_sets = []
-for label, df in mcd_frames.items():
-    key = f"mcd_{slugify(label)}"
+inhouse_mcd_sets = []
+for label, df in inhouse_mcd_frames.items():
+    key = f"inhouse_mcd_{slugify(label)}"
     padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
     gene_set = upregulated_set(df, padj_eff, lfc_eff)
-    mcd_sets.append(gene_set)
+    inhouse_mcd_sets.append(gene_set)
     summary_rows.append(
         {
-            "group": "MCD",
+            "group": "MCD (in-house)",
             "dataset": "mouse",
             "analysis": label,
             "padj": padj_eff,
@@ -347,13 +382,13 @@ for label, df in mcd_frames.items():
             "count": len(gene_set),
         }
     )
-    summary_sets[make_label("MCD", "mouse", label)] = {"species": "mouse", "genes": gene_set}
+    summary_sets[make_label("MCD (in-house)", "mouse", label)] = {"species": "mouse", "genes": gene_set}
 
-if mcd_sets:
-    mcd_intersection = set.intersection(*mcd_sets)
+if inhouse_mcd_sets:
+    mcd_intersection = set.intersection(*inhouse_mcd_sets)
     summary_rows.append(
         {
-            "group": "MCD",
+            "group": "MCD (in-house)",
             "dataset": "mouse",
             "analysis": "MCD Week1/2/3 Intersection",
             "padj": "varies",
@@ -361,10 +396,26 @@ if mcd_sets:
             "count": len(mcd_intersection),
         }
     )
-    summary_sets[make_label("MCD", "mouse", "MCD Week1/2/3 Intersection")] = {
+    summary_sets[make_label("MCD (in-house)", "mouse", "MCD Week1/2/3 Intersection")] = {
         "species": "mouse",
         "genes": mcd_intersection,
     }
+
+for label, df in external_mcd_frames.items():
+    key = f"external_mcd_{slugify(label)}"
+    padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
+    gene_set = upregulated_set(df, padj_eff, lfc_eff)
+    summary_rows.append(
+        {
+            "group": "MCD (external)",
+            "dataset": "mouse",
+            "analysis": label,
+            "padj": padj_eff,
+            "log2FC": lfc_eff,
+            "count": len(gene_set),
+        }
+    )
+    summary_sets[make_label("MCD (external)", "mouse", label)] = {"species": "mouse", "genes": gene_set}
 
 for dataset, info in patient_data.items():
     if info.get("paths") is None:
@@ -456,11 +507,19 @@ if summary_rows:
         + " | "
         + summary_df["analysis"].astype(str)
     )
-    total_count = int(summary_df["count"].sum())
-    st.metric("Total DEGs (sum of summary counts)", total_count)
-    st.caption("Total is a simple sum across summary rows (not de-duplicated).")
 
     raw_sets = {label: entry["genes"] for label, entry in summary_sets.items()}
+    all_labels = list(raw_sets.keys())
+    active_labels = st.multiselect(
+        "Include in totals & downstream analyses",
+        options=all_labels,
+        default=all_labels,
+    )
+
+    total_count = int(summary_df[summary_df["label"].isin(active_labels)]["count"].sum()) if active_labels else 0
+    st.metric("Total DEGs (sum of selected counts)", total_count)
+    st.caption("Total is a simple sum across selected summary rows (not de-duplicated).")
+
     dedup_sets = {}
     if ORTHOLOG_PATH is not None:
         use_one2one = st.checkbox("Use one-to-one orthologs only", value=True)
@@ -474,8 +533,8 @@ if summary_rows:
                 dedup_sets[label] = canonicalize_human_set(genes)
             else:
                 dedup_sets[label] = canonicalize_mouse_set(genes, mouse_to_human, include_unmapped)
-        if dedup_sets:
-            dedup_total = len(set.union(*dedup_sets.values()))
+        if dedup_sets and active_labels:
+            dedup_total = len(set.union(*(dedup_sets[label] for label in active_labels if label in dedup_sets)))
             st.metric("Total DEGs (deduplicated across mouse+human)", dedup_total)
             st.caption(
                 "Mouse genes are mapped to human Ensembl orthologs for cross-species de-duplication."
@@ -487,12 +546,12 @@ if summary_rows:
     st.bar_chart(summary_df.set_index("label")["count"])
 
 # ===== Detailed sections =====
-st.subheader("MCD (Mouse) — individual cutoffs")
+st.subheader("MCD (in-house) — individual cutoffs")
 
-mcd_detail_rows = []
-mcd_sets = []
-for label, df in mcd_frames.items():
-    key = f"mcd_{slugify(label)}"
+inhouse_detail_rows = []
+inhouse_sets = []
+for label, df in inhouse_mcd_frames.items():
+    key = f"inhouse_mcd_{slugify(label)}"
     with st.expander(f"{label} settings", expanded=False):
         st.checkbox("Override cutoffs", key=f"{key}_override")
         if st.session_state.get(f"{key}_override", False):
@@ -503,21 +562,41 @@ for label, df in mcd_frames.items():
 
     padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
     gene_set = upregulated_set(df, padj_eff, lfc_eff)
-    mcd_sets.append(gene_set)
-    mcd_detail_rows.append({"analysis": label, "padj": padj_eff, "log2FC": lfc_eff, "count": len(gene_set)})
+    inhouse_sets.append(gene_set)
+    inhouse_detail_rows.append({"analysis": label, "padj": padj_eff, "log2FC": lfc_eff, "count": len(gene_set)})
 
-if mcd_sets:
-    mcd_detail_rows.append(
+if inhouse_sets:
+    inhouse_detail_rows.append(
         {
             "analysis": "MCD Week1/2/3 Intersection",
             "padj": "varies",
             "log2FC": "varies",
-            "count": intersection_count_from_sets(mcd_sets),
+            "count": intersection_count_from_sets(inhouse_sets),
         }
     )
 
-if mcd_detail_rows:
-    render_table(pd.DataFrame(mcd_detail_rows))
+if inhouse_detail_rows:
+    render_table(pd.DataFrame(inhouse_detail_rows))
+
+st.subheader("MCD (external GEO) — individual cutoffs")
+
+external_detail_rows = []
+for label, df in external_mcd_frames.items():
+    key = f"external_mcd_{slugify(label)}"
+    with st.expander(f"{label} settings", expanded=False):
+        st.checkbox("Override cutoffs", key=f"{key}_override")
+        if st.session_state.get(f"{key}_override", False):
+            st.slider("padj cutoff", 0.0, 0.2, padj_cutoff, 0.005, key=f"{key}_padj")
+            st.slider("log2FC cutoff", 0.0, 5.0, log2fc_cutoff, 0.1, key=f"{key}_lfc")
+        padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
+        st.caption(f"Effective: padj < {padj_eff:.3f}, log2FC > {lfc_eff:.2f}")
+
+    padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
+    gene_set = upregulated_set(df, padj_eff, lfc_eff)
+    external_detail_rows.append({"analysis": label, "padj": padj_eff, "log2FC": lfc_eff, "count": len(gene_set)})
+
+if external_detail_rows:
+    render_table(pd.DataFrame(external_detail_rows))
 
 st.subheader("Patient (Human) — individual cutoffs")
 
@@ -581,13 +660,18 @@ for dataset, info in patient_data.items():
 with st.expander("Sanity check (padj=0.1, log2FC=0)"):
     st.write("MCD counts at padj=0.1, log2FC=0")
     mcd_counts_sc = []
-    mcd_sets_sc = []
-    for label, df in mcd_frames.items():
+    inhouse_sets_sc = []
+    for label, df in inhouse_mcd_frames.items():
         gene_set = upregulated_set(df, 0.1, 0.0)
-        mcd_sets_sc.append(gene_set)
-        mcd_counts_sc.append({"analysis": label, "count": len(gene_set)})
-    if mcd_sets_sc:
-        mcd_counts_sc.append({"analysis": "MCD Week1/2/3 Intersection", "count": intersection_count_from_sets(mcd_sets_sc)})
+        inhouse_sets_sc.append(gene_set)
+        mcd_counts_sc.append({"analysis": f"{label} (in-house)", "count": len(gene_set)})
+    if inhouse_sets_sc:
+        mcd_counts_sc.append(
+            {"analysis": "MCD Week1/2/3 Intersection (in-house)", "count": intersection_count_from_sets(inhouse_sets_sc)}
+        )
+    for label, df in external_mcd_frames.items():
+        gene_set = upregulated_set(df, 0.1, 0.0)
+        mcd_counts_sc.append({"analysis": f"{label} (external)", "count": len(gene_set)})
     if mcd_counts_sc:
         render_table(pd.DataFrame(mcd_counts_sc))
 
@@ -624,7 +708,10 @@ if summary_rows:
     if ORTHOLOG_PATH is not None and dedup_sets:
         use_dedup = st.checkbox("Use cross-species ortholog-mapped sets", value=True)
     sets_for_overlap = dedup_sets if use_dedup and dedup_sets else raw_sets
-    options = list(sets_for_overlap.keys())
+    if active_labels:
+        options = [label for label in sets_for_overlap.keys() if label in active_labels]
+    else:
+        options = list(sets_for_overlap.keys())
     default_sel = options[: min(6, len(options))]
     selected = st.multiselect("Select sets to visualize", options, default=default_sel)
     if len(selected) < 2:
