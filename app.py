@@ -478,43 +478,6 @@ if summary_rows:
     st.dataframe(summary_df, hide_index=True, use_container_width=True)
     st.bar_chart(summary_df.set_index("label")["count"])
 
-# ===== Overlap Explorer =====
-st.subheader("Overlap Explorer")
-if summary_rows:
-    use_dedup = False
-    if ORTHOLOG_PATH is not None and dedup_sets:
-        use_dedup = st.checkbox("Use cross-species ortholog-mapped sets", value=True)
-    sets_for_overlap = dedup_sets if use_dedup and dedup_sets else raw_sets
-    options = list(sets_for_overlap.keys())
-    default_sel = options[: min(6, len(options))]
-    selected = st.multiselect("Select sets to visualize", options, default=default_sel)
-    if len(selected) < 2:
-        st.info("Select at least two sets to visualize overlaps.")
-    else:
-        try:
-            from upsetplot import UpSet, from_contents  # type: ignore
-            import matplotlib.pyplot as plt
-        except ImportError:
-            st.warning("Install upsetplot and matplotlib to view overlap plots.")
-        else:
-            selected_sets = {label: sets_for_overlap[label] for label in selected}
-            data = from_contents(selected_sets)
-            try:
-                total_overlap = float(pd.to_numeric(data, errors="coerce").fillna(0).sum())
-            except Exception:
-                total_overlap = 0.0
-            if data.empty or total_overlap == 0:
-                st.info("No overlaps to plot for the selected sets at current cutoffs.")
-            else:
-                try:
-                    fig = plt.figure(figsize=(8, 4))
-                    UpSet(data, show_counts=True, sort_by="degree").plot(fig=fig)
-                    st.pyplot(fig, clear_figure=True)
-                except Exception as exc:  # pragma: no cover - plotting backend variability
-                    st.warning(f"Unable to render overlap plot: {exc}")
-else:
-    st.info("Summary data not available yet.")
-
 # ===== Detailed sections =====
 st.subheader("MCD (Mouse) — individual cutoffs")
 
@@ -645,3 +608,37 @@ with st.expander("Sanity check (padj=0.1, log2FC=0)"):
             ]
         )
         st.dataframe(patient_counts_sc, hide_index=True, use_container_width=True)
+
+# ===== Overlap Explorer (bottom) =====
+st.subheader("Overlap Explorer")
+if summary_rows:
+    use_dedup = False
+    if ORTHOLOG_PATH is not None and dedup_sets:
+        use_dedup = st.checkbox("Use cross-species ortholog-mapped sets", value=True)
+    sets_for_overlap = dedup_sets if use_dedup and dedup_sets else raw_sets
+    options = list(sets_for_overlap.keys())
+    default_sel = options[: min(6, len(options))]
+    selected = st.multiselect("Select sets to visualize", options, default=default_sel)
+    if len(selected) < 2:
+        st.info("Select at least two sets to visualize overlaps.")
+    else:
+        try:
+            from upsetplot import UpSet, from_contents  # type: ignore
+            import matplotlib.pyplot as plt
+        except ImportError:
+            st.warning("Install upsetplot and matplotlib to view overlap plots.")
+        else:
+            selected_sets = {label: sets_for_overlap[label] for label in selected}
+            union_size = len(set().union(*selected_sets.values())) if selected_sets else 0
+            if union_size == 0:
+                st.info("No elements to plot for the selected sets at current cutoffs.")
+            else:
+                try:
+                    data = from_contents(selected_sets)
+                    fig = plt.figure(figsize=(8, 4))
+                    UpSet(data, show_counts=True, sort_by="degree").plot(fig=fig)
+                    st.pyplot(fig, clear_figure=True)
+                except Exception as exc:  # pragma: no cover - plotting backend variability
+                    st.warning(f"Unable to render overlap plot: {exc}")
+else:
+    st.info("Summary data not available yet.")
