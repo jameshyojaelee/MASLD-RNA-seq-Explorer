@@ -66,6 +66,15 @@ BUNDLED_PATIENT_FILES = {
     },
 }
 
+ORTHOLOG_FILENAME = "mouse_human_orthologs.tsv.gz"
+ORTHOLOG_ENV = os.environ.get("DEG_ORTHOLOG_MAP")
+if ORTHOLOG_ENV:
+    ORTHOLOG_PATH = Path(ORTHOLOG_ENV).expanduser().resolve()
+elif DATA_DIR is not None and (DATA_DIR / ORTHOLOG_FILENAME).exists():
+    ORTHOLOG_PATH = DATA_DIR / ORTHOLOG_FILENAME
+else:
+    ORTHOLOG_PATH = None
+
 
 @st.cache_data(show_spinner=False)
 def find_latest_run(base_dir: Path) -> Path | None:
@@ -103,6 +112,62 @@ def normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def strip_version(gene_id: str) -> str:
+    return gene_id.split(".")[0] if isinstance(gene_id, str) else gene_id
+
+
+@st.cache_data(show_spinner=False)
+def load_ortholog_map(path: Path) -> pd.DataFrame:
+    df = pd.read_csv(path, sep="\t")
+    cols = {c.lower(): c for c in df.columns}
+    mouse_col = cols.get("mouse_ensembl_gene_id") or cols.get("ensembl_gene_id") or cols.get("mouse_gene_id")
+    human_col = cols.get("human_ensembl_gene_id") or cols.get("hsapiens_homolog_ensembl_gene")
+    ortho_col = cols.get("orthology_type") or cols.get("hsapiens_homolog_orthology_type")
+    if mouse_col is None or human_col is None:
+        raise ValueError("Ortholog map missing required mouse/human columns.")
+    df = df.rename(
+        columns={
+            mouse_col: "mouse_ensembl_gene_id",
+            human_col: "human_ensembl_gene_id",
+            ortho_col: "orthology_type",
+        }
+    )
+    df = df[["mouse_ensembl_gene_id", "human_ensembl_gene_id", "orthology_type"]]
+    df = df.dropna(subset=["mouse_ensembl_gene_id", "human_ensembl_gene_id"])
+    df["mouse_ensembl_gene_id"] = df["mouse_ensembl_gene_id"].map(strip_version)
+    df["human_ensembl_gene_id"] = df["human_ensembl_gene_id"].map(strip_version)
+    return df
+
+
+def build_mouse_to_human_map(df: pd.DataFrame, one2one_only: bool) -> dict[str, set[str]]:
+    if one2one_only:
+        df = df[df["orthology_type"].str.contains("one2one", case=False, na=False)]
+    mapping: dict[str, set[str]] = {}
+    for row in df.itertuples(index=False):
+        mapping.setdefault(row.mouse_ensembl_gene_id, set()).add(row.human_ensembl_gene_id)
+    return mapping
+
+
+def canonicalize_human_set(gene_set: set[str]) -> set[str]:
+    return {strip_version(gid) for gid in gene_set}
+
+
+def canonicalize_mouse_set(
+    gene_set: set[str],
+    mapping: dict[str, set[str]],
+    include_unmapped: bool,
+) -> set[str]:
+    canonical = set()
+    for gid in gene_set:
+        gid_norm = strip_version(gid)
+        mapped = mapping.get(gid_norm)
+        if mapped:
+            canonical.update(mapped)
+        elif include_unmapped:
+            canonical.add(f"MOUSE:{gid_norm}")
+    return canonical
+
+
 def upregulated_set(df: pd.DataFrame, padj_cutoff: float, log2fc_cutoff: float) -> set[str]:
     mask = (df["padj"] < padj_cutoff) & (df["log2FoldChange"] > log2fc_cutoff)
     return set(df.loc[mask, "gene_id"].astype(str))
@@ -115,17 +180,26 @@ def intersection_count_from_sets(sets: Iterable[set[str]]) -> int:
     return len(set.intersection(*sets))
 
 
+def top_right_set(
+    nas_df: pd.DataFrame,
+    other_df: pd.DataFrame,
+    nas_log2fc_cutoff: float,
+    padj_cutoff: float,
+) -> set[str]:
+    nas_mask = (nas_df["padj"] < padj_cutoff) & (nas_df["log2FoldChange"] > nas_log2fc_cutoff)
+    other_mask = other_df["padj"] < padj_cutoff
+    nas_set = set(nas_df.loc[nas_mask, "gene_id"].astype(str))
+    other_set = set(other_df.loc[other_mask, "gene_id"].astype(str))
+    return nas_set & other_set
+
+
 def top_right_count(
     nas_df: pd.DataFrame,
     other_df: pd.DataFrame,
     nas_log2fc_cutoff: float,
     padj_cutoff: float,
 ) -> int:
-    nas_mask = (nas_df["padj"] < padj_cutoff) & (nas_df["log2FoldChange"] > nas_log2fc_cutoff)
-    other_mask = other_df["padj"] < padj_cutoff
-    nas_set = set(nas_df.loc[nas_mask, "gene_id"].astype(str))
-    other_set = set(other_df.loc[other_mask, "gene_id"].astype(str))
-    return len(nas_set & other_set)
+    return len(top_right_set(nas_df, other_df, nas_log2fc_cutoff, padj_cutoff))
 
 
 def get_mcd_paths() -> dict[str, Path]:
@@ -171,6 +245,10 @@ def patient_paths(dataset: str) -> dict[str, Path] | None:
 
 def slugify(text: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "_" for ch in text).strip("_")
+
+
+def make_label(group: str, dataset: str, analysis: str) -> str:
+    return f"{group} | {dataset} | {analysis}"
 
 
 def get_cutoffs(key: str, default_padj: float, default_lfc: float) -> tuple[float, float]:
@@ -241,6 +319,9 @@ for dataset in PATIENT_DATASETS:
 st.subheader("Overall summary")
 
 summary_rows = []
+summary_sets: dict[str, dict[str, object]] = {}
+raw_sets: dict[str, set[str]] = {}
+dedup_sets: dict[str, set[str]] = {}
 
 mcd_sets = []
 for label, df in mcd_frames.items():
@@ -258,8 +339,10 @@ for label, df in mcd_frames.items():
             "count": len(gene_set),
         }
     )
+    summary_sets[make_label("MCD", "mouse", label)] = {"species": "mouse", "genes": gene_set}
 
 if mcd_sets:
+    mcd_intersection = set.intersection(*mcd_sets)
     summary_rows.append(
         {
             "group": "MCD",
@@ -267,9 +350,13 @@ if mcd_sets:
             "analysis": "MCD Week1/2/3 Intersection",
             "padj": "varies",
             "log2FC": "varies",
-            "count": intersection_count_from_sets(mcd_sets),
+            "count": len(mcd_intersection),
         }
     )
+    summary_sets[make_label("MCD", "mouse", "MCD Week1/2/3 Intersection")] = {
+        "species": "mouse",
+        "genes": mcd_intersection,
+    }
 
 for dataset, info in patient_data.items():
     if info.get("paths") is None:
@@ -305,6 +392,10 @@ for dataset, info in patient_data.items():
     nas_low_df = info["nas_low"]
     fibrosis_df = info["fibrosis"]
 
+    nas_high_set = upregulated_set(nas_high_df, nas_padj, nas_lfc)
+    nas_high_vs_fibrosis_set = top_right_set(nas_high_df, fibrosis_df, nas_lfc, padj_cutoff=top_padj)
+    nas_high_vs_nas_low_set = top_right_set(nas_high_df, nas_low_df, nas_lfc, padj_cutoff=top_padj)
+
     summary_rows.append(
         {
             "group": "Patient",
@@ -312,9 +403,13 @@ for dataset, info in patient_data.items():
             "analysis": "NAS high (upregulated)",
             "padj": nas_padj,
             "log2FC": nas_lfc,
-            "count": len(upregulated_set(nas_high_df, nas_padj, nas_lfc)),
+            "count": len(nas_high_set),
         }
     )
+    summary_sets[make_label("Patient", dataset, "NAS high (upregulated)")] = {
+        "species": "human",
+        "genes": nas_high_set,
+    }
     summary_rows.append(
         {
             "group": "Patient",
@@ -322,9 +417,13 @@ for dataset, info in patient_data.items():
             "analysis": "NAS high vs Fibrosis (top-right)",
             "padj": top_padj,
             "log2FC": nas_lfc,
-            "count": top_right_count(nas_high_df, fibrosis_df, nas_lfc, padj_cutoff=top_padj),
+            "count": len(nas_high_vs_fibrosis_set),
         }
     )
+    summary_sets[make_label("Patient", dataset, "NAS high vs Fibrosis (top-right)")] = {
+        "species": "human",
+        "genes": nas_high_vs_fibrosis_set,
+    }
     summary_rows.append(
         {
             "group": "Patient",
@@ -332,9 +431,13 @@ for dataset, info in patient_data.items():
             "analysis": "NAS high vs NAS low (top-right)",
             "padj": top_padj,
             "log2FC": nas_lfc,
-            "count": top_right_count(nas_high_df, nas_low_df, nas_lfc, padj_cutoff=top_padj),
+            "count": len(nas_high_vs_nas_low_set),
         }
     )
+    summary_sets[make_label("Patient", dataset, "NAS high vs NAS low (top-right)")] = {
+        "species": "human",
+        "genes": nas_high_vs_nas_low_set,
+    }
 
 if summary_rows:
     summary_df = pd.DataFrame(summary_rows)
@@ -348,8 +451,59 @@ if summary_rows:
     total_count = int(summary_df["count"].sum())
     st.metric("Total DEGs (sum of summary counts)", total_count)
     st.caption("Total is a simple sum across summary rows (not de-duplicated).")
+
+    raw_sets = {label: entry["genes"] for label, entry in summary_sets.items()}
+    dedup_sets = {}
+    if ORTHOLOG_PATH is not None:
+        use_one2one = st.checkbox("Use one-to-one orthologs only", value=True)
+        include_unmapped = st.checkbox("Include unmapped mouse genes", value=True)
+        ortholog_df = load_ortholog_map(ORTHOLOG_PATH)
+        mouse_to_human = build_mouse_to_human_map(ortholog_df, one2one_only=use_one2one)
+        for label, entry in summary_sets.items():
+            species = entry["species"]
+            genes = entry["genes"]
+            if species == "human":
+                dedup_sets[label] = canonicalize_human_set(genes)
+            else:
+                dedup_sets[label] = canonicalize_mouse_set(genes, mouse_to_human, include_unmapped)
+        if dedup_sets:
+            dedup_total = len(set.union(*dedup_sets.values()))
+            st.metric("Total DEGs (deduplicated across mouse+human)", dedup_total)
+            st.caption(
+                "Mouse genes are mapped to human Ensembl orthologs for cross-species de-duplication."
+            )
+    else:
+        st.info("Ortholog map not found; cross-species de-duplication and overlaps are disabled.")
+
     st.dataframe(summary_df, hide_index=True, use_container_width=True)
     st.bar_chart(summary_df.set_index("label")["count"])
+
+# ===== Overlap Explorer =====
+st.subheader("Overlap Explorer")
+if summary_rows:
+    use_dedup = False
+    if ORTHOLOG_PATH is not None and dedup_sets:
+        use_dedup = st.checkbox("Use cross-species ortholog-mapped sets", value=True)
+    sets_for_overlap = dedup_sets if use_dedup and dedup_sets else raw_sets
+    options = list(sets_for_overlap.keys())
+    default_sel = options[: min(6, len(options))]
+    selected = st.multiselect("Select sets to visualize", options, default=default_sel)
+    if len(selected) < 2:
+        st.info("Select at least two sets to visualize overlaps.")
+    else:
+        try:
+            from upsetplot import UpSet, from_contents  # type: ignore
+            import matplotlib.pyplot as plt
+        except ImportError:
+            st.warning("Install upsetplot and matplotlib to view overlap plots.")
+        else:
+            selected_sets = {label: sets_for_overlap[label] for label in selected}
+            data = from_contents(selected_sets)
+            fig = plt.figure(figsize=(8, 4))
+            UpSet(data, show_counts=True, sort_by="degree").plot(fig=fig)
+            st.pyplot(fig, clear_figure=True)
+else:
+    st.info("Summary data not available yet.")
 
 # ===== Detailed sections =====
 st.subheader("MCD (Mouse) — individual cutoffs")

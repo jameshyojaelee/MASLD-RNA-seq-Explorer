@@ -9,7 +9,8 @@ streamlit run app.py
 ```
 
 ## Data
-Bundled DEG tables live in `data/` (compressed). A manifest is in `data/manifest.tsv`.
+Bundled DEG tables live in `data/` (compressed), plus a mouse→human ortholog map
+used for cross-species de-duplication. A manifest is in `data/manifest.tsv`.
 
 To rebuild the manifest:
 ```
@@ -19,6 +20,7 @@ python scripts/build_data_manifest.py
 ## Config
 Optional environment variable:
 - `DEG_DATA_DIR` — override where the app looks for the bundled DEG tables.
+- `DEG_ORTHOLOG_MAP` — override the ortholog mapping file path.
 
 ## Streamlit Community Cloud
 - Point Streamlit to `app.py` in this repo.
