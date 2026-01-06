@@ -61,6 +61,13 @@ EXTERNAL_MCD_PATHS = {
 }
 
 PATIENT_DATASETS = ["GSE130970", "GSE135251"]
+PATIENT_CROSS_DATASET_PAIR = ("GSE135251", "GSE130970")
+PATIENT_CROSS_COMPARISONS = {
+    "NAS high": "nas_high",
+    "NAS low": "nas_low",
+    "Fibrosis": "fibrosis",
+}
+PATIENT_CROSS_LFC_CUTOFF = 0.0
 
 BUNDLED_INHOUSE_MCD_FILES = {
     "MCD Week 1": "mcd_week1.tsv.gz",
@@ -193,6 +200,18 @@ def upregulated_set(df: pd.DataFrame, padj_cutoff: float, log2fc_cutoff: float) 
     return set(df.loc[mask, "gene_id"].astype(str))
 
 
+def lfc_positive_set(
+    df: pd.DataFrame,
+    log2fc_cutoff: float,
+    *,
+    strip_versions: bool = False,
+) -> set[str]:
+    genes = df.loc[df["log2FoldChange"] > log2fc_cutoff, "gene_id"].astype(str)
+    if strip_versions:
+        genes = genes.map(strip_version)
+    return set(genes)
+
+
 def intersection_count_from_sets(sets: Iterable[set[str]]) -> int:
     sets = list(sets)
     if not sets:
@@ -213,6 +232,14 @@ def top_right_set(
     return nas_set & other_set
 
 
+def cross_dataset_top_right_set(
+    df_a: pd.DataFrame,
+    df_b: pd.DataFrame,
+    log2fc_cutoff: float,
+) -> set[str]:
+    return lfc_positive_set(df_a, log2fc_cutoff) & lfc_positive_set(df_b, log2fc_cutoff)
+
+
 def top_right_count(
     nas_df: pd.DataFrame,
     other_df: pd.DataFrame,
@@ -220,6 +247,81 @@ def top_right_count(
     padj_cutoff: float,
 ) -> int:
     return len(top_right_set(nas_df, other_df, nas_log2fc_cutoff, padj_cutoff))
+
+
+def build_combo_counts(
+    sets: dict[str, set[str]],
+    labels: list[str],
+) -> tuple[dict[tuple[str, ...], int], dict[str, set[str]], set[str]]:
+    selected = {label: sets[label] for label in labels if label in sets}
+    if not selected:
+        return {}, selected, set()
+    union = set.union(*selected.values())
+    combo_counts: dict[tuple[str, ...], int] = {}
+    ordered_labels = [label for label in labels if label in selected]
+    for gene in union:
+        combo = tuple(label for label in ordered_labels if gene in selected[label])
+        combo_counts[combo] = combo_counts.get(combo, 0) + 1
+    return combo_counts, selected, union
+
+
+def build_contribution_table(
+    selected_sets: dict[str, set[str]],
+    combo_counts: dict[tuple[str, ...], int],
+    union_size: int,
+) -> pd.DataFrame:
+    rows = []
+    for label, genes in selected_sets.items():
+        total_in_set = len(genes)
+        unique_only = combo_counts.get((label,), 0)
+        shared_any = total_in_set - unique_only
+        rows.append(
+            {
+                "set": label,
+                "total_in_set": total_in_set,
+                "unique_only": unique_only,
+                "shared_any": shared_any,
+                "unique_%_of_union": (unique_only / union_size) if union_size else 0.0,
+                "total_%_of_union": (total_in_set / union_size) if union_size else 0.0,
+            }
+        )
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df["unique_%_of_union"] = df["unique_%_of_union"].map(lambda x: f"{x:.2%}")
+        df["total_%_of_union"] = df["total_%_of_union"].map(lambda x: f"{x:.2%}")
+    return df.sort_values(["unique_only", "total_in_set"], ascending=False)
+
+
+def build_combo_table(
+    combo_counts: dict[tuple[str, ...], int],
+    union_size: int,
+) -> pd.DataFrame:
+    rows = []
+    for combo, count in combo_counts.items():
+        rows.append(
+            {
+                "combination": " + ".join(combo),
+                "num_sets": len(combo),
+                "count": count,
+                "percent_of_union": (count / union_size) if union_size else 0.0,
+            }
+        )
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df["percent_of_union"] = df["percent_of_union"].map(lambda x: f"{x:.2%}")
+    return df.sort_values(["num_sets", "count"], ascending=[False, False])
+
+
+def build_upset_series(combo_counts: dict[tuple[str, ...], int], labels: list[str]) -> pd.Series | None:
+    if not combo_counts:
+        return None
+    tuples = []
+    counts = []
+    for combo, count in combo_counts.items():
+        tuples.append(tuple(label in combo for label in labels))
+        counts.append(count)
+    index = pd.MultiIndex.from_tuples(tuples, names=labels)
+    return pd.Series(counts, index=index)
 
 
 def get_inhouse_mcd_paths() -> dict[str, Path]:
@@ -311,6 +413,7 @@ st.markdown(
 - **Mouse (external MCD GEO)**: **GSE156918** and **GSE205974** Control vs MCD contrasts.
 - **Patient (human)**: GEO datasets **GSE130970** and **GSE135251** (NAFLD/NASH/MASLD cohorts).
 - This app reports **upregulated DEGs only** (log2FC > cutoff) and lets you adjust padj/log2FC cutoffs globally or per-dataset.
+- **Patient (cross-dataset)**: top-right quadrant overlaps (log2FC > 0 in both datasets; no padj cutoff).
 
 **Citations / datasets**: GEO **GSE156918**, **GSE205974**, **GSE130970**, **GSE135251**, and in-house MCD RNA-seq (week 1–3 diet contrasts).
 """
@@ -320,8 +423,9 @@ padj_cutoff = st.slider("Global padj cutoff (MCD + NAS high)", 0.0, 0.2, 0.1, 0.
 log2fc_cutoff = st.slider("Global log2FC cutoff (upregulated only)", 0.0, 5.0, 0.0, 0.1)
 
 st.caption(
-    "Top-right quadrant uses a dataset-specific padj cutoff (defaults to the global padj unless overridden), "
-    "and log2FC cutoff applies only to NAS high."
+    "Within-dataset top-right uses a dataset-specific padj cutoff (defaults to the global padj unless overridden), "
+    "and log2FC cutoff applies only to NAS high. Cross-dataset top-right uses log2FC > 0 in both datasets with "
+    "no padj filtering."
 )
 
 # Load MCD data (in-house + external)
@@ -365,6 +469,8 @@ summary_sets: dict[str, dict[str, object]] = {}
 raw_sets: dict[str, set[str]] = {}
 dedup_sets: dict[str, set[str]] = {}
 active_labels: list[str] = []
+cross_dataset_rows: list[dict[str, object]] = []
+cross_dataset_sets: dict[str, set[str]] = {}
 
 inhouse_mcd_sets = []
 for label, df in inhouse_mcd_frames.items():
@@ -498,6 +604,35 @@ for dataset, info in patient_data.items():
         "genes": nas_high_vs_nas_low_set,
     }
 
+pair_a, pair_b = PATIENT_CROSS_DATASET_PAIR
+info_a = patient_data.get(pair_a)
+info_b = patient_data.get(pair_b)
+if info_a and info_b and not info_a.get("error") and not info_b.get("error") and info_a.get("paths") and info_b.get("paths"):
+    for comp_label, comp_key in PATIENT_CROSS_COMPARISONS.items():
+        df_a = info_a.get(comp_key)
+        df_b = info_b.get(comp_key)
+        if df_a is None or df_b is None:
+            continue
+        cross_set = cross_dataset_top_right_set(df_a, df_b, PATIENT_CROSS_LFC_CUTOFF)
+        cross_dataset_rows.append(
+            {
+                "group": "Patient (cross-dataset)",
+                "dataset": f"{pair_a} vs {pair_b}",
+                "analysis": f"{comp_label} (lfc>0 both)",
+                "padj": "none",
+                "log2FC": f">{PATIENT_CROSS_LFC_CUTOFF}",
+                "count": len(cross_set),
+            }
+        )
+        summary_sets[make_label("Patient (cross-dataset)", f"{pair_a} vs {pair_b}", f"{comp_label} (lfc>0 both)")] = {
+            "species": "human",
+            "genes": cross_set,
+        }
+        cross_dataset_sets[comp_label] = cross_set
+
+if cross_dataset_rows:
+    summary_rows.extend(cross_dataset_rows)
+
 if summary_rows:
     summary_df = pd.DataFrame(summary_rows)
     summary_df["label"] = (
@@ -507,7 +642,6 @@ if summary_rows:
         + " | "
         + summary_df["analysis"].astype(str)
     )
-
     raw_sets = {label: entry["genes"] for label, entry in summary_sets.items()}
     all_labels = list(raw_sets.keys())
     active_labels = st.multiselect(
@@ -534,11 +668,40 @@ if summary_rows:
             else:
                 dedup_sets[label] = canonicalize_mouse_set(genes, mouse_to_human, include_unmapped)
         if dedup_sets and active_labels:
-            dedup_total = len(set.union(*(dedup_sets[label] for label in active_labels if label in dedup_sets)))
+            selected_labels = [label for label in active_labels if label in dedup_sets]
+            combo_counts, selected_sets, union_genes = build_combo_counts(dedup_sets, selected_labels)
+            dedup_total = len(union_genes)
             st.metric("Total DEGs (deduplicated across mouse+human)", dedup_total)
             st.caption(
                 "Mouse genes are mapped to human Ensembl orthologs for cross-species de-duplication."
             )
+            with st.expander("Deduplicated contribution breakdown", expanded=False):
+                if dedup_total == 0:
+                    st.info("No genes available for contribution breakdown at current cutoffs.")
+                else:
+                    contrib_df = build_contribution_table(selected_sets, combo_counts, dedup_total)
+                    st.markdown("**Per-set contribution to the deduplicated union**")
+                    render_table(contrib_df)
+
+                    combo_df = build_combo_table(combo_counts, dedup_total)
+                    st.markdown("**Exact combination counts (deduplicated union)**")
+                    render_table(combo_df)
+
+                    try:
+                        import matplotlib.pyplot as plt
+                        from upsetplot import UpSet
+                    except Exception:
+                        st.info("UpSet plot unavailable (missing matplotlib/upsetplot).")
+                    else:
+                        series = build_upset_series(combo_counts, selected_labels)
+                        if series is None or series.values.sum() == 0:
+                            st.info("UpSet plot unavailable for empty selection.")
+                        else:
+                            fig = plt.figure(figsize=(10, 4))
+                            upset = UpSet(series, subset_size="count", show_counts=True, sort_by="cardinality")
+                            upset.plot(fig=fig)
+                            st.pyplot(fig, use_container_width=True)
+                            plt.close(fig)
     else:
         st.info("Ortholog map not found; cross-species de-duplication and overlaps are disabled.")
 
@@ -656,6 +819,18 @@ for dataset, info in patient_data.items():
         },
     ]
     render_table(pd.DataFrame(patient_rows))
+
+st.subheader("Patient (cross-dataset) — top-right quadrant (lfc>0 only)")
+if not cross_dataset_rows:
+    st.info("Cross-dataset top-right sets are unavailable (missing or incomplete patient runs).")
+else:
+    st.caption(f"Dataset pair: {pair_a} vs {pair_b}")
+    cross_df = pd.DataFrame(cross_dataset_rows)
+    render_table(cross_df[["analysis", "log2FC", "count"]])
+    with st.expander("Cross-dataset top-right gene lists", expanded=False):
+        for label, genes in cross_dataset_sets.items():
+            st.markdown(f"**{label}** ({len(genes):,} genes)")
+            render_table(pd.DataFrame({"gene_id": sorted(genes)}))
 
 with st.expander("Sanity check (padj=0.1, log2FC=0)"):
     st.write("MCD counts at padj=0.1, log2FC=0")
