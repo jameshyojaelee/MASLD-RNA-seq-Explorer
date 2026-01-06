@@ -251,6 +251,14 @@ def make_label(group: str, dataset: str, analysis: str) -> str:
     return f"{group} | {dataset} | {analysis}"
 
 
+def render_table(df: pd.DataFrame) -> None:
+    df_display = df.copy()
+    for col in ("padj", "log2FC"):
+        if col in df_display.columns:
+            df_display[col] = df_display[col].astype(str)
+    st.dataframe(df_display, hide_index=True, width="stretch")
+
+
 def get_cutoffs(key: str, default_padj: float, default_lfc: float) -> tuple[float, float]:
     use_override = st.session_state.get(f"{key}_override", False)
     if not use_override:
@@ -475,7 +483,7 @@ if summary_rows:
     else:
         st.info("Ortholog map not found; cross-species de-duplication and overlaps are disabled.")
 
-    st.dataframe(summary_df, hide_index=True, use_container_width=True)
+    render_table(summary_df)
     st.bar_chart(summary_df.set_index("label")["count"])
 
 # ===== Detailed sections =====
@@ -509,7 +517,7 @@ if mcd_sets:
     )
 
 if mcd_detail_rows:
-    st.dataframe(pd.DataFrame(mcd_detail_rows), hide_index=True, use_container_width=True)
+    render_table(pd.DataFrame(mcd_detail_rows))
 
 st.subheader("Patient (Human) — individual cutoffs")
 
@@ -568,7 +576,7 @@ for dataset, info in patient_data.items():
             "count": top_right_count(nas_high_df, nas_low_df, nas_lfc, padj_cutoff=top_padj),
         },
     ]
-    st.dataframe(pd.DataFrame(patient_rows), hide_index=True, use_container_width=True)
+    render_table(pd.DataFrame(patient_rows))
 
 with st.expander("Sanity check (padj=0.1, log2FC=0)"):
     st.write("MCD counts at padj=0.1, log2FC=0")
@@ -581,7 +589,7 @@ with st.expander("Sanity check (padj=0.1, log2FC=0)"):
     if mcd_sets_sc:
         mcd_counts_sc.append({"analysis": "MCD Week1/2/3 Intersection", "count": intersection_count_from_sets(mcd_sets_sc)})
     if mcd_counts_sc:
-        st.dataframe(pd.DataFrame(mcd_counts_sc), hide_index=True, use_container_width=True)
+        render_table(pd.DataFrame(mcd_counts_sc))
 
     for dataset, info in patient_data.items():
         st.write(f"{dataset} (padj=0.1, log2FC=0)")
@@ -607,7 +615,7 @@ with st.expander("Sanity check (padj=0.1, log2FC=0)"):
                 },
             ]
         )
-        st.dataframe(patient_counts_sc, hide_index=True, use_container_width=True)
+        render_table(patient_counts_sc)
 
 # ===== Overlap Explorer (bottom) =====
 st.subheader("Overlap Explorer")
@@ -640,5 +648,13 @@ if summary_rows:
                     st.pyplot(fig, clear_figure=True)
                 except Exception as exc:  # pragma: no cover - plotting backend variability
                     st.warning(f"Unable to render overlap plot: {exc}")
+                    # Fallback: show pairwise overlap counts
+                    labels = list(selected_sets.keys())
+                    overlap = pd.DataFrame(index=labels, columns=labels, dtype=int)
+                    for a in labels:
+                        for b in labels:
+                            overlap.loc[a, b] = len(selected_sets[a] & selected_sets[b])
+                    st.caption("Fallback: pairwise overlap counts")
+                    render_table(overlap.reset_index().rename(columns={"index": "set"}))
 else:
     st.info("Summary data not available yet.")
