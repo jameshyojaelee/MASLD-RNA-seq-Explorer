@@ -499,7 +499,10 @@ if summary_rows:
         else:
             selected_sets = {label: sets_for_overlap[label] for label in selected}
             data = from_contents(selected_sets)
-            total_overlap = int(data.values.sum()) if hasattr(data, "values") else 0
+            try:
+                total_overlap = float(pd.to_numeric(data, errors="coerce").fillna(0).sum())
+            except Exception:
+                total_overlap = 0.0
             if data.empty or total_overlap == 0:
                 st.info("No overlaps to plot for the selected sets at current cutoffs.")
             else:
