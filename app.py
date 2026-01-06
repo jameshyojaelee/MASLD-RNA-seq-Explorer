@@ -312,16 +312,6 @@ def build_combo_table(
     return df.sort_values(["num_sets", "count"], ascending=[False, False])
 
 
-def build_upset_series(combo_counts: dict[tuple[str, ...], int], labels: list[str]) -> pd.Series | None:
-    if not combo_counts:
-        return None
-    tuples = []
-    counts = []
-    for combo, count in combo_counts.items():
-        tuples.append(tuple(label in combo for label in labels))
-        counts.append(count)
-    index = pd.MultiIndex.from_tuples(tuples, names=labels)
-    return pd.Series(counts, index=index)
 
 
 def get_inhouse_mcd_paths() -> dict[str, Path]:
@@ -687,30 +677,10 @@ if summary_rows:
                     st.markdown("**Exact combination counts (deduplicated union)**")
                     render_table(combo_df)
 
-                    try:
-                        import matplotlib.pyplot as plt
-                        from upsetplot import UpSet
-                    except Exception:
-                        st.info("UpSet plot unavailable (missing matplotlib/upsetplot).")
-                    else:
-                        series = build_upset_series(combo_counts, selected_labels)
-                        if series is None or series.values.sum() == 0:
-                            st.info("UpSet plot unavailable for empty selection.")
-                        else:
-                            try:
-                                fig = plt.figure(figsize=(10, 4))
-                                upset = UpSet(
-                                    series,
-                                    subset_size="count",
-                                    show_counts=False,
-                                    show_percentages=False,
-                                    sort_by="cardinality",
-                                )
-                                upset.plot(fig=fig)
-                                st.pyplot(fig, use_container_width=True)
-                                plt.close(fig)
-                            except Exception:
-                                st.info("UpSet plot failed to render; see tables above for overlap details.")
+                    bar_df = contrib_df[["set", "unique_only", "shared_any"]].copy()
+                    bar_df = bar_df.set_index("set")
+                    st.markdown("**Unique vs shared contributions (stacked)**")
+                    st.bar_chart(bar_df, stack=True, width="stretch")
     else:
         st.info("Ortholog map not found; cross-species de-duplication and overlaps are disabled.")
 
