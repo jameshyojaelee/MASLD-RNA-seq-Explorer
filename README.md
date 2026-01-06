@@ -3,6 +3,12 @@
 Streamlit app to explore **upregulated** DEG counts across in-house MCD (mouse) and
 public GEO patient datasets (GSE130970, GSE135251).
 
+## Live app (Streamlit Community Cloud)
+This URL should remain stable as long as the app name/workspace are unchanged:
+```
+https://masld-rna-seq-explorer-f9uhpppgfmcyadgbzx2zrr.streamlit.app/
+```
+
 ## Run locally
 ```
 streamlit run app.py
