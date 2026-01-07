@@ -663,23 +663,21 @@ if summary_rows:
             st.caption(
                 "Mouse genes are mapped to human Ensembl orthologs for cross-species de-duplication."
             )
-            with st.expander("DEG contribution breakdown", expanded=False):
-                if dedup_total == 0:
-                    st.info("No genes available for contribution breakdown at current cutoffs.")
-                else:
-                    contrib_df = build_contribution_table(selected_sets, combo_counts, dedup_total)
-                    st.markdown("**Per-set contribution to the deduplicated union**")
-                    render_table(contrib_df)
+            st.markdown("**DEG contribution breakdown**")
+            if dedup_total == 0:
+                st.info("No genes available for contribution breakdown at current cutoffs.")
+            else:
+                contrib_df = build_contribution_table(selected_sets, combo_counts, dedup_total)
+                st.markdown("**Per-set contribution to the deduplicated union**")
+                render_table(contrib_df)
 
-                    bar_df = contrib_df[["set", "unique_only", "shared_any"]].copy()
-                    bar_df = bar_df.set_index("set")
-                    st.markdown("**Unique vs shared contributions (stacked)**")
-                    st.bar_chart(bar_df, stack=True, width="stretch")
+                bar_df = contrib_df[["set", "unique_only", "shared_any"]].copy()
+                bar_df = bar_df.set_index("set")
+                st.markdown("**Unique vs shared contributions (stacked)**")
+                st.bar_chart(bar_df, stack=True, width="stretch")
     else:
         st.info("Ortholog map not found; cross-species de-duplication and overlaps are disabled.")
 
-    render_table(summary_df)
-    st.bar_chart(summary_df.set_index("label")["count"])
 
 # ===== Detailed sections =====
 st.subheader("MCD (in-house) — individual cutoffs")
