@@ -976,16 +976,14 @@ if summary_rows:
     if ORTHOLOG_PATH is not None and dedup_sets:
         use_dedup = st.checkbox("Use cross-species ortholog-mapped sets", value=True)
     sets_for_overlap = dedup_sets if use_dedup and dedup_sets else raw_sets
-    if active_labels:
-        options = [label for label in sets_for_overlap.keys() if label in active_labels]
+    
+    # Filter sets based on the active selection from the top
+    selected_labels = [label for label in sets_for_overlap.keys() if label in active_labels]
+
+    if len(selected_labels) < 2:
+        st.info("Select at least two sets above to visualize overlaps.")
     else:
-        options = list(sets_for_overlap.keys())
-    default_sel = options[: min(6, len(options))]
-    selected = st.multiselect("Select sets to visualize", options, default=default_sel)
-    if len(selected) < 2:
-        st.info("Select at least two sets to visualize overlaps.")
-    else:
-        selected_sets = {label: sets_for_overlap[label] for label in selected}
+        selected_sets = {label: sets_for_overlap[label] for label in selected_labels}
         union_size = len(set().union(*selected_sets.values())) if selected_sets else 0
         if union_size == 0:
             st.info("No elements to plot for the selected sets at current cutoffs.")
