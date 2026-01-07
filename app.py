@@ -792,15 +792,14 @@ if summary_rows:
                         alt.Chart(bar_long)
                         .mark_bar()
                         .encode(
-                            x=alt.X("Count", stack="normalize", axis=alt.Axis(format="%")),
-                            y=alt.Y("set", title="Set"),
+                            x=alt.X("Count", title="Number of Genes"),
+                            y=alt.Y("set", title="Set", sort="-x"),
                             color=alt.Color(
                                 "Type",
                                 scale=alt.Scale(domain=["unique_only", "shared_any"], range=["#C23B75", "#F2A45E"]),
                                 legend=alt.Legend(title="Type"),
                             ),
                             tooltip=["set", "Type", "Count"],
-                            order=alt.Order("Type", sort="descending"),
                         )
                     )
                     st.altair_chart(chart, use_container_width=True)
