@@ -980,8 +980,8 @@ if summary_rows:
     # Filter sets based on the active selection from the top
     selected_labels = [label for label in sets_for_overlap.keys() if label in active_labels]
 
-    if len(selected_labels) < 2:
-        st.info("Select at least two sets above to visualize overlaps.")
+    if len(selected_labels) < 1:
+        st.info("Select at least one set above to visualize.")
     else:
         selected_sets = {label: sets_for_overlap[label] for label in selected_labels}
         union_size = len(set().union(*selected_sets.values())) if selected_sets else 0
