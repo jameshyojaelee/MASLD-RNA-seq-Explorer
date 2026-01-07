@@ -481,40 +481,81 @@ for dataset in PATIENT_DATASETS:
         "fibrosis": load_patient_csv(paths["fibrosis"]),
     }
 
-# ===== Pre-calculate Labels for Selection =====
-all_labels = []
+# ===== Selection UI =====
+st.info("Select the analyses to include in the findings.")
+active_labels = []
 
-# In-house
-for label in inhouse_mcd_frames:
-    all_labels.append(make_label("MCD (in-house)", "mouse", label))
-if any(l in inhouse_mcd_frames for l in INHOUSE_MCD_WEEK_LABELS):
-    all_labels.append(make_label("MCD (in-house)", "mouse", "MCD Week1/2/3 Intersection"))
+col_mouse, col_human = st.columns(2)
 
-# External
-for label in external_mcd_frames:
-    all_labels.append(make_label("MCD (external)", "mouse", label))
+def selection_component(label, options, key_prefix):
+    # options: list of (display_label, full_key)
+    st.markdown(f"**{label}**")
+    try:
+        # Check if st.pills exists (Streamlit 1.40+)
+        if hasattr(st, "pills"):
+            # Map display label back to full key
+            display_map = {opt[0]: opt[1] for opt in options}
+            selection = st.pills(label, list(display_map.keys()), selection_mode="multi", key=f"pills_{key_prefix}", label_visibility="collapsed")
+            return [display_map[s] for s in selection]
+    except Exception:
+        pass
+    
+    # Fallback to checkboxes
+    selected = []
+    for disp, val in options:
+        if st.checkbox(disp, key=f"chk_{val}"):
+            selected.append(val)
+    return selected
 
-# Patient
-for dataset, info in patient_data.items():
-    if not info.get("error") and info.get("paths"):
-        all_labels.append(make_label("Patient", dataset, "NAS high (upregulated)"))
-        all_labels.append(make_label("Patient", dataset, "NAS high vs Fibrosis (top-right)"))
-        all_labels.append(make_label("Patient", dataset, "NAS high vs NAS low (top-right)"))
+with col_mouse:
+    st.subheader("Mouse")
+    # In-house
+    opts = []
+    for label in inhouse_mcd_frames:
+        # Shorten label: "MCD Week 1" -> "Week 1"
+        short = label.replace("MCD ", "")
+        opts.append((short, make_label("MCD (in-house)", "mouse", label)))
+    
+    if any(l in inhouse_mcd_frames for l in INHOUSE_MCD_WEEK_LABELS):
+        opts.append(("Week 1/2/3 Intersection", make_label("MCD (in-house)", "mouse", "MCD Week1/2/3 Intersection")))
+    
+    if opts:
+        active_labels.extend(selection_component("In-house MCD", opts, "inhouse"))
 
-# Patient Cross-dataset
-pair_a, pair_b = PATIENT_CROSS_DATASET_PAIR
-info_a = patient_data.get(pair_a)
-info_b = patient_data.get(pair_b)
-if info_a and info_b and not info_a.get("error") and not info_b.get("error") and info_a.get("paths") and info_b.get("paths"):
-    for comp_label in PATIENT_CROSS_COMPARISONS:
-         all_labels.append(make_label("Patient (cross-dataset)", f"{pair_a} vs {pair_b}", f"{comp_label} (top-right)"))
+    # External
+    opts = []
+    for label in external_mcd_frames:
+        # Shorten: "GSE156918 (external MCD)" -> "GSE156918"
+        short = label.split(" ")[0]
+        opts.append((short, make_label("MCD (external)", "mouse", label)))
+    
+    if opts:
+        active_labels.extend(selection_component("External MCD", opts, "external"))
 
-st.info("Select the datasets/analyses you want to include in totals, overlaps, and contribution breakdowns.")
-active_labels = st.multiselect(
-    "Choose datasets/analyses to include",
-    options=all_labels,
-    default=[],
-)
+with col_human:
+    st.subheader("Human")
+    # Patient
+    opts = []
+    for dataset, info in patient_data.items():
+        if not info.get("error") and info.get("paths"):
+            opts.append((f"{dataset} NAS High", make_label("Patient", dataset, "NAS high (upregulated)")))
+            opts.append((f"{dataset} NAS High vs Fibrosis", make_label("Patient", dataset, "NAS high vs Fibrosis (top-right)")))
+            opts.append((f"{dataset} NAS High vs Low", make_label("Patient", dataset, "NAS high vs NAS low (top-right)")))
+    
+    if opts:
+        active_labels.extend(selection_component("Patient Cohorts", opts, "patient"))
+
+    # Cross-dataset
+    opts = []
+    pair_a, pair_b = PATIENT_CROSS_DATASET_PAIR
+    info_a = patient_data.get(pair_a)
+    info_b = patient_data.get(pair_b)
+    if info_a and info_b and not info_a.get("error") and not info_b.get("error") and info_a.get("paths") and info_b.get("paths"):
+        for comp_label in PATIENT_CROSS_COMPARISONS:
+             opts.append((f"{comp_label} (Cross-dataset)", make_label("Patient (cross-dataset)", f"{pair_a} vs {pair_b}", f"{comp_label} (top-right)")))
+    
+    if opts:
+        active_labels.extend(selection_component("Cross-dataset", opts, "cross"))
 
 # ===== Global Sliders =====
 padj_cutoff = st.slider("Global padj cutoff (MCD + NAS high)", 0.0, 0.2, 0.1, 0.005)
