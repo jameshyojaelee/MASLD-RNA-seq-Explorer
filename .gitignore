@@ -7,3 +7,5 @@ __pycache__/
 .env
 .venv/
 .streamlit/
+unmapped_mouse_genes_selected.txt
+unmapped_mouse_genes_selected.tsv

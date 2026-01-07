@@ -108,6 +108,15 @@ elif DATA_DIR is not None and (DATA_DIR / ORTHOLOG_FILENAME).exists():
 else:
     ORTHOLOG_PATH = None
 
+BIOTYPE_FILENAME = "ensembl_gene_biotypes.tsv.gz"
+BIOTYPE_ENV = os.environ.get("DEG_BIOTYPE_MAP")
+if BIOTYPE_ENV:
+    BIOTYPE_PATH = Path(BIOTYPE_ENV).expanduser().resolve()
+elif DATA_DIR is not None and (DATA_DIR / BIOTYPE_FILENAME).exists():
+    BIOTYPE_PATH = DATA_DIR / BIOTYPE_FILENAME
+else:
+    BIOTYPE_PATH = None
+
 
 @st.cache_data(show_spinner=False)
 def find_latest_run(base_dir: Path) -> Path | None:
@@ -179,6 +188,29 @@ def build_mouse_to_human_map(df: pd.DataFrame, one2one_only: bool) -> dict[str, 
     for row in df.itertuples(index=False):
         mapping.setdefault(row.mouse_ensembl_gene_id, set()).add(row.human_ensembl_gene_id)
     return mapping
+
+
+@st.cache_data(show_spinner=False)
+def load_biotype_map(path: Path) -> pd.DataFrame:
+    df = pd.read_csv(path, sep="\t")
+    cols = {c.lower(): c for c in df.columns}
+    gene_col = cols.get("ensembl_gene_id") or cols.get("gene_id")
+    biotype_col = cols.get("gene_biotype") or cols.get("gene_type")
+    species_col = cols.get("species")
+    if gene_col is None or biotype_col is None or species_col is None:
+        raise ValueError("Biotype map missing required columns.")
+    df = df.rename(
+        columns={
+            gene_col: "ensembl_gene_id",
+            biotype_col: "gene_biotype",
+            species_col: "species",
+        }
+    )
+    df = df[["ensembl_gene_id", "gene_biotype", "species"]]
+    df = df.dropna(subset=["ensembl_gene_id", "gene_biotype", "species"])
+    df["ensembl_gene_id"] = df["ensembl_gene_id"].map(strip_version)
+    df["species"] = df["species"].str.lower()
+    return df
 
 
 def canonicalize_human_set(gene_set: set[str]) -> set[str]:
@@ -648,9 +680,6 @@ if summary_rows:
         default=[],
     )
 
-    total_count = int(summary_df[summary_df["label"].isin(active_labels)]["count"].sum()) if active_labels else 0
-    st.metric("Total DEGs (sum of selected counts)", total_count)
-    st.caption("Total is a simple sum across selected summary rows (not de-duplicated).")
     if not active_labels:
         st.info("No datasets selected yet. Pick one or more above to populate the downstream analyses.")
 
@@ -687,6 +716,48 @@ if summary_rows:
                 bar_df = bar_df.set_index("set")
                 st.markdown("**Unique vs shared contributions (stacked)**")
                 st.bar_chart(bar_df, stack=True, width="stretch")
+
+            if BIOTYPE_PATH is None:
+                st.info("Biotype map not found; biotype breakdown is unavailable.")
+            else:
+                with st.expander("DEG biotype breakdown", expanded=False):
+                    if dedup_total == 0:
+                        st.info("No genes available for biotype breakdown at current cutoffs.")
+                    else:
+                        biotype_df = load_biotype_map(BIOTYPE_PATH)
+                        human_map = (
+                            biotype_df[biotype_df["species"] == "human"]
+                            .set_index("ensembl_gene_id")["gene_biotype"]
+                            .to_dict()
+                        )
+                        mouse_map = (
+                            biotype_df[biotype_df["species"] == "mouse"]
+                            .set_index("ensembl_gene_id")["gene_biotype"]
+                            .to_dict()
+                        )
+                        counts: dict[str, int] = {}
+                        for gid in union_genes:
+                            if gid.startswith("MOUSE:"):
+                                gid_norm = strip_version(gid.split("MOUSE:", 1)[1])
+                                biotype = mouse_map.get(gid_norm, "unknown_mouse")
+                            else:
+                                gid_norm = strip_version(gid)
+                                biotype = human_map.get(gid_norm, "unknown_human")
+                            counts[biotype] = counts.get(biotype, 0) + 1
+
+                        breakdown = (
+                            pd.DataFrame(
+                                [{"biotype": key, "count": value} for key, value in counts.items()]
+                            )
+                            .sort_values("count", ascending=False)
+                            .reset_index(drop=True)
+                        )
+                        if not breakdown.empty:
+                            breakdown["percent_of_total"] = breakdown["count"].map(
+                                lambda x: f"{(x / dedup_total):.2%}"
+                            )
+                        st.bar_chart(breakdown.set_index("biotype")["count"], width="stretch")
+                        render_table(breakdown)
     else:
         st.info("Ortholog map not found; cross-species de-duplication and overlaps are disabled.")
 
