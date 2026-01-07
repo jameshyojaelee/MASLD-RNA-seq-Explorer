@@ -923,7 +923,7 @@ if summary_rows:
                     .encode(
                         x=alt.X("set_b:N", title="Set B"),
                         y=alt.Y("set_a:N", title="Set A"),
-                        color=alt.Color("overlap:Q", title="Overlap"),
+                        color=alt.Color("overlap:Q", title="Overlap", scale=alt.Scale(range=["#262730", "#C23B75"])),
                         tooltip=["set_a", "set_b", "overlap"],
                     )
                 )
