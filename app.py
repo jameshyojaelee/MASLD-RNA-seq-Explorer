@@ -784,7 +784,28 @@ if summary_rows:
                 bar_df = contrib_df[["set", "unique_only", "shared_any"]].copy()
                 bar_df = bar_df.set_index("set")
                 st.markdown("**Unique vs shared contributions (stacked)**")
-                st.bar_chart(bar_df, stack=True, width="stretch")
+                # Use Altair for themed stacked bar chart
+                bar_long = bar_df.reset_index().melt(id_vars="set", var_name="Type", value_name="Count")
+                try:
+                    import altair as alt
+                    chart = (
+                        alt.Chart(bar_long)
+                        .mark_bar()
+                        .encode(
+                            x=alt.X("Count", stack="normalize", axis=alt.Axis(format="%")),
+                            y=alt.Y("set", title="Set"),
+                            color=alt.Color(
+                                "Type",
+                                scale=alt.Scale(domain=["unique_only", "shared_any"], range=["#C23B75", "#F2A45E"]),
+                                legend=alt.Legend(title="Type"),
+                            ),
+                            tooltip=["set", "Type", "Count"],
+                            order=alt.Order("Type", sort="descending"),
+                        )
+                    )
+                    st.altair_chart(chart, use_container_width=True)
+                except Exception:
+                    st.bar_chart(bar_df, stack=True, width="stretch")
 
             if BIOTYPE_PATH is None:
                 st.info("Biotype map not found; biotype breakdown is unavailable.")
