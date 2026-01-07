@@ -536,6 +536,17 @@ with st.expander("Dataset-specific overrides (Advanced)"):
                 with c4:
                     st.number_input(f"Top-right global padj", 0.0, 1.0, 0.1, 0.005, key=f"{key}_top_padj")
 
+    st.markdown("#### Patient (Cross-dataset)")
+    key = "patient_cross_dataset"
+    c1, c2, c3 = st.columns([2, 2, 2])
+    with c1:
+        use_override = st.checkbox(f"Cross-dataset pair", key=f"{key}_override")
+    if use_override:
+        with c2:
+            st.number_input(f"padj", 0.0, 1.0, padj_cutoff, 0.005, key=f"{key}_padj")
+        with c3:
+            st.number_input(f"log2FC", 0.0, 10.0, log2fc_cutoff, 0.1, key=f"{key}_lfc")
+
 # ===== Top summary =====
 st.subheader("Overall summary")
 
@@ -689,14 +700,18 @@ if info_a and info_b and not info_a.get("error") and not info_b.get("error") and
         df_b = info_b.get(comp_key)
         if df_a is None or df_b is None:
             continue
-        cross_set = cross_dataset_top_right_set(df_a, df_b, padj_cutoff, log2fc_cutoff)
+        
+        key = "patient_cross_dataset"
+        padj_cd, lfc_cd = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
+        
+        cross_set = cross_dataset_top_right_set(df_a, df_b, padj_cd, lfc_cd)
         cross_dataset_rows.append(
             {
                 "group": "Patient (cross-dataset)",
                 "dataset": f"{pair_a} vs {pair_b}",
                 "analysis": f"{comp_label} (top-right)",
-                "padj": padj_cutoff,
-                "log2FC": f">{log2fc_cutoff}",
+                "padj": padj_cd,
+                "log2FC": f">{lfc_cd}",
                 "count": len(cross_set),
             }
         )
@@ -756,6 +771,13 @@ if summary_rows:
                 st.info("No genes available for contribution breakdown at current cutoffs.")
             else:
                 contrib_df = build_contribution_table(selected_sets, combo_counts, dedup_total)
+
+                # Enhance with cutoff info from summary_df
+                if not summary_df.empty:
+                    cutoff_map = summary_df.set_index("label")[["padj", "log2FC"]].to_dict("index")
+                    contrib_df["padj"] = contrib_df["set"].map(lambda x: cutoff_map.get(x, {}).get("padj", "-"))
+                    contrib_df["log2FC"] = contrib_df["set"].map(lambda x: cutoff_map.get(x, {}).get("log2FC", "-"))
+
                 st.markdown("**Per-set contribution to the deduplicated union**")
                 render_table(contrib_df)
 
@@ -809,107 +831,8 @@ if summary_rows:
         st.info("Ortholog map not found; cross-species de-duplication and overlaps are disabled.")
 
 
-# ===== Detailed sections =====
-st.subheader("MCD (in-house) — individual cutoffs")
+# ===== Detailed sections (Removed) =====
 
-inhouse_detail_rows = []
-inhouse_week_sets = []
-for label, df in inhouse_mcd_frames.items():
-    key = f"inhouse_mcd_{slugify(label)}"
-    padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
-
-    padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
-    gene_set = upregulated_set(df, padj_eff, lfc_eff)
-    if label in INHOUSE_MCD_WEEK_LABELS:
-        inhouse_week_sets.append(gene_set)
-    inhouse_detail_rows.append({"analysis": label, "padj": padj_eff, "log2FC": lfc_eff, "count": len(gene_set)})
-
-if inhouse_week_sets:
-    inhouse_detail_rows.append(
-        {
-            "analysis": "MCD Week1/2/3 Intersection",
-            "padj": "varies",
-            "log2FC": "varies",
-            "count": intersection_count_from_sets(inhouse_week_sets),
-        }
-    )
-
-if inhouse_detail_rows:
-    render_table(pd.DataFrame(inhouse_detail_rows))
-
-st.subheader("MCD (external GEO) — individual cutoffs")
-
-external_detail_rows = []
-for label, df in external_mcd_frames.items():
-    key = f"external_mcd_{slugify(label)}"
-    padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
-
-    padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
-    gene_set = upregulated_set(df, padj_eff, lfc_eff)
-    external_detail_rows.append({"analysis": label, "padj": padj_eff, "log2FC": lfc_eff, "count": len(gene_set)})
-
-if external_detail_rows:
-    render_table(pd.DataFrame(external_detail_rows))
-
-st.subheader("Patient (Human) — individual cutoffs")
-
-for dataset, info in patient_data.items():
-    st.markdown(f"#### {dataset}")
-    if info.get("paths") is None:
-        st.warning(f"No run folder found for {dataset}.")
-        continue
-    if info.get("error"):
-        st.warning(f"{dataset}: {info['error']}")
-        continue
-
-    run_label = info["paths"].get("run_label")
-    if run_label is None:
-        run_label = info["paths"]["run"].name
-        st.caption(f"Latest run: {run_label}")
-    else:
-        st.caption("Data source: bundled")
-
-    key = f"patient_{slugify(dataset)}"
-    nas_padj, nas_lfc = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
-    top_padj = get_topright_padj(key, default_padj=padj_cutoff)
-
-    nas_high_df = info["nas_high"]
-    nas_low_df = info["nas_low"]
-    fibrosis_df = info["fibrosis"]
-
-    patient_rows = [
-        {
-            "analysis": "NAS high (upregulated)",
-            "padj": nas_padj,
-            "log2FC": nas_lfc,
-            "count": len(upregulated_set(nas_high_df, nas_padj, nas_lfc)),
-        },
-        {
-            "analysis": "NAS high vs Fibrosis (top-right)",
-            "padj": top_padj,
-            "log2FC": nas_lfc,
-            "count": top_right_count(nas_high_df, fibrosis_df, nas_lfc, padj_cutoff=top_padj),
-        },
-        {
-            "analysis": "NAS high vs NAS low (top-right)",
-            "padj": top_padj,
-            "log2FC": nas_lfc,
-            "count": top_right_count(nas_high_df, nas_low_df, nas_lfc, padj_cutoff=top_padj),
-        },
-    ]
-    render_table(pd.DataFrame(patient_rows))
-
-st.subheader("Patient (cross-dataset) — top-right quadrant")
-if not cross_dataset_rows:
-    st.info("Cross-dataset top-right sets are unavailable (missing or incomplete patient runs).")
-else:
-    st.caption(f"Dataset pair: {pair_a} vs {pair_b}")
-    cross_df = pd.DataFrame(cross_dataset_rows)
-    render_table(cross_df[["analysis", "log2FC", "count"]])
-    with st.expander("Cross-dataset top-right gene lists", expanded=False):
-        for label, genes in cross_dataset_sets.items():
-            st.markdown(f"**{label}** ({len(genes):,} genes)")
-            render_table(pd.DataFrame({"gene_id": sorted(genes)}))
 
 with st.expander("Sanity check (padj=0.1, log2FC=0)"):
     st.write("MCD counts at padj=0.1, log2FC=0")
