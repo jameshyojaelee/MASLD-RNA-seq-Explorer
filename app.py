@@ -448,6 +448,39 @@ st.markdown(
 """
 )
 
+# Load MCD data (in-house + external)
+inhouse_mcd_frames = {}
+for label, path in get_inhouse_mcd_paths().items():
+    if not path.exists():
+        st.warning(f"Missing in-house MCD file: {path}")
+        continue
+    inhouse_mcd_frames[label] = load_mcd_tsv(path)
+
+external_mcd_frames = {}
+for label, path in get_external_mcd_paths().items():
+    if not path.exists():
+        st.warning(f"Missing external MCD file: {path}")
+        continue
+    external_mcd_frames[label] = load_mcd_tsv(path)
+
+# Load patient data for both datasets
+patient_data = {}
+for dataset in PATIENT_DATASETS:
+    paths = patient_paths(dataset)
+    if paths is None:
+        patient_data[dataset] = {"paths": None, "error": "No run folder found."}
+        continue
+    missing = [k for k, p in paths.items() if k not in ("run", "run_label") and not p.exists()]
+    if missing:
+        patient_data[dataset] = {"paths": paths, "error": f"Missing files: {', '.join(missing)}"}
+        continue
+    patient_data[dataset] = {
+        "paths": paths,
+        "nas_high": load_patient_csv(paths["nas_high"]),
+        "nas_low": load_patient_csv(paths["nas_low"]),
+        "fibrosis": load_patient_csv(paths["fibrosis"]),
+    }
+
 # ===== Pre-calculate Labels for Selection =====
 all_labels = []
 
@@ -491,39 +524,6 @@ st.caption(
     "Within-dataset top-right uses a dataset-specific padj cutoff (defaults to the global padj unless overridden), "
     "and log2FC cutoff applies only to NAS high. Cross-dataset top-right uses the global padj/log2FC cutoffs."
 )
-
-# Load MCD data (in-house + external)
-inhouse_mcd_frames = {}
-for label, path in get_inhouse_mcd_paths().items():
-    if not path.exists():
-        st.warning(f"Missing in-house MCD file: {path}")
-        continue
-    inhouse_mcd_frames[label] = load_mcd_tsv(path)
-
-external_mcd_frames = {}
-for label, path in get_external_mcd_paths().items():
-    if not path.exists():
-        st.warning(f"Missing external MCD file: {path}")
-        continue
-    external_mcd_frames[label] = load_mcd_tsv(path)
-
-# Load patient data for both datasets
-patient_data = {}
-for dataset in PATIENT_DATASETS:
-    paths = patient_paths(dataset)
-    if paths is None:
-        patient_data[dataset] = {"paths": None, "error": "No run folder found."}
-        continue
-    missing = [k for k, p in paths.items() if k not in ("run", "run_label") and not p.exists()]
-    if missing:
-        patient_data[dataset] = {"paths": paths, "error": f"Missing files: {', '.join(missing)}"}
-        continue
-    patient_data[dataset] = {
-        "paths": paths,
-        "nas_high": load_patient_csv(paths["nas_high"]),
-        "nas_low": load_patient_csv(paths["nas_low"]),
-        "fibrosis": load_patient_csv(paths["fibrosis"]),
-    }
 
 # ===== Dataset specific overrides =====
 with st.expander("Dataset-specific overrides (Advanced)"):
