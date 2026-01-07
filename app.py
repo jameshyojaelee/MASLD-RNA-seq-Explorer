@@ -448,6 +448,42 @@ st.markdown(
 """
 )
 
+# ===== Pre-calculate Labels for Selection =====
+all_labels = []
+
+# In-house
+for label in inhouse_mcd_frames:
+    all_labels.append(make_label("MCD (in-house)", "mouse", label))
+if any(l in inhouse_mcd_frames for l in INHOUSE_MCD_WEEK_LABELS):
+    all_labels.append(make_label("MCD (in-house)", "mouse", "MCD Week1/2/3 Intersection"))
+
+# External
+for label in external_mcd_frames:
+    all_labels.append(make_label("MCD (external)", "mouse", label))
+
+# Patient
+for dataset, info in patient_data.items():
+    if not info.get("error") and info.get("paths"):
+        all_labels.append(make_label("Patient", dataset, "NAS high (upregulated)"))
+        all_labels.append(make_label("Patient", dataset, "NAS high vs Fibrosis (top-right)"))
+        all_labels.append(make_label("Patient", dataset, "NAS high vs NAS low (top-right)"))
+
+# Patient Cross-dataset
+pair_a, pair_b = PATIENT_CROSS_DATASET_PAIR
+info_a = patient_data.get(pair_a)
+info_b = patient_data.get(pair_b)
+if info_a and info_b and not info_a.get("error") and not info_b.get("error") and info_a.get("paths") and info_b.get("paths"):
+    for comp_label in PATIENT_CROSS_COMPARISONS:
+         all_labels.append(make_label("Patient (cross-dataset)", f"{pair_a} vs {pair_b}", f"{comp_label} (top-right)"))
+
+st.info("Select the datasets/analyses you want to include in totals, overlaps, and contribution breakdowns.")
+active_labels = st.multiselect(
+    "Choose datasets/analyses to include",
+    options=all_labels,
+    default=[],
+)
+
+# ===== Global Sliders =====
 padj_cutoff = st.slider("Global padj cutoff (MCD + NAS high)", 0.0, 0.2, 0.1, 0.005)
 log2fc_cutoff = st.slider("Global log2FC cutoff (upregulated only)", 0.0, 5.0, 0.0, 0.1)
 
@@ -734,13 +770,7 @@ if summary_rows:
         + summary_df["analysis"].astype(str)
     )
     raw_sets = {label: entry["genes"] for label, entry in summary_sets.items()}
-    all_labels = list(raw_sets.keys())
-    st.info("Select the datasets/analyses you want to include in totals, overlaps, and contribution breakdowns.")
-    active_labels = st.multiselect(
-        "Choose datasets/analyses to include",
-        options=all_labels,
-        default=[],
-    )
+    raw_sets = {label: entry["genes"] for label, entry in summary_sets.items()}
 
     if not active_labels:
         st.info("No datasets selected yet. Pick one or more above to populate the downstream analyses.")
