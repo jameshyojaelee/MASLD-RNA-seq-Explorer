@@ -489,6 +489,53 @@ for dataset in PATIENT_DATASETS:
         "fibrosis": load_patient_csv(paths["fibrosis"]),
     }
 
+# ===== Dataset specific overrides =====
+with st.expander("Dataset-specific overrides (Advanced)"):
+    st.caption("Override the global cutoffs for specific datasets.")
+
+    if inhouse_mcd_frames:
+        st.markdown("#### MCD (In-house)")
+        for label in inhouse_mcd_frames:
+            key = f"inhouse_mcd_{slugify(label)}"
+            c1, c2, c3 = st.columns([2, 2, 2])
+            with c1:
+                use_override = st.checkbox(f"{label}", key=f"{key}_override")
+            if use_override:
+                with c2:
+                    st.number_input(f"padj", 0.0, 1.0, padj_cutoff, 0.005, key=f"{key}_padj")
+                with c3:
+                    st.number_input(f"log2FC", 0.0, 10.0, log2fc_cutoff, 0.1, key=f"{key}_lfc")
+
+    if external_mcd_frames:
+        st.markdown("#### MCD (External)")
+        for label in external_mcd_frames:
+            key = f"external_mcd_{slugify(label)}"
+            c1, c2, c3 = st.columns([2, 2, 2])
+            with c1:
+                use_override = st.checkbox(f"{label}", key=f"{key}_override")
+            if use_override:
+                with c2:
+                    st.number_input(f"padj", 0.0, 1.0, padj_cutoff, 0.005, key=f"{key}_padj")
+                with c3:
+                    st.number_input(f"log2FC", 0.0, 10.0, log2fc_cutoff, 0.1, key=f"{key}_lfc")
+
+    if patient_data:
+        st.markdown("#### Patient Datasets")
+        for dataset, info in patient_data.items():
+            if info.get("error") or info.get("paths") is None:
+                continue
+            key = f"patient_{slugify(dataset)}"
+            c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
+            with c1:
+                use_override = st.checkbox(f"{dataset}", key=f"{key}_override")
+            if use_override:
+                with c2:
+                    st.number_input(f"NAS high padj", 0.0, 1.0, padj_cutoff, 0.005, key=f"{key}_padj")
+                with c3:
+                    st.number_input(f"NAS high log2FC", 0.0, 10.0, log2fc_cutoff, 0.1, key=f"{key}_lfc")
+                with c4:
+                    st.number_input(f"Top-right global padj", 0.0, 1.0, 0.1, 0.005, key=f"{key}_top_padj")
+
 # ===== Top summary =====
 st.subheader("Overall summary")
 
@@ -769,13 +816,7 @@ inhouse_detail_rows = []
 inhouse_week_sets = []
 for label, df in inhouse_mcd_frames.items():
     key = f"inhouse_mcd_{slugify(label)}"
-    with st.expander(f"{label} settings", expanded=False):
-        st.checkbox("Override cutoffs", key=f"{key}_override")
-        if st.session_state.get(f"{key}_override", False):
-            st.slider("padj cutoff", 0.0, 0.2, padj_cutoff, 0.005, key=f"{key}_padj")
-            st.slider("log2FC cutoff", 0.0, 5.0, log2fc_cutoff, 0.1, key=f"{key}_lfc")
-        padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
-        st.caption(f"Effective: padj < {padj_eff:.3f}, log2FC > {lfc_eff:.2f}")
+    padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
 
     padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
     gene_set = upregulated_set(df, padj_eff, lfc_eff)
@@ -801,13 +842,7 @@ st.subheader("MCD (external GEO) — individual cutoffs")
 external_detail_rows = []
 for label, df in external_mcd_frames.items():
     key = f"external_mcd_{slugify(label)}"
-    with st.expander(f"{label} settings", expanded=False):
-        st.checkbox("Override cutoffs", key=f"{key}_override")
-        if st.session_state.get(f"{key}_override", False):
-            st.slider("padj cutoff", 0.0, 0.2, padj_cutoff, 0.005, key=f"{key}_padj")
-            st.slider("log2FC cutoff", 0.0, 5.0, log2fc_cutoff, 0.1, key=f"{key}_lfc")
-        padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
-        st.caption(f"Effective: padj < {padj_eff:.3f}, log2FC > {lfc_eff:.2f}")
+    padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
 
     padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
     gene_set = upregulated_set(df, padj_eff, lfc_eff)
@@ -835,19 +870,8 @@ for dataset, info in patient_data.items():
         st.caption("Data source: bundled")
 
     key = f"patient_{slugify(dataset)}"
-    with st.expander(f"{dataset} settings", expanded=False):
-        st.checkbox("Override cutoffs", key=f"{key}_override")
-        if st.session_state.get(f"{key}_override", False):
-            st.slider("NAS high padj cutoff", 0.0, 0.2, padj_cutoff, 0.005, key=f"{key}_padj")
-            st.slider("NAS high log2FC cutoff", 0.0, 5.0, log2fc_cutoff, 0.1, key=f"{key}_lfc")
-            st.slider("Top-right padj cutoff", 0.0, 0.2, 0.1, 0.005, key=f"{key}_top_padj")
-
-        nas_padj, nas_lfc = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
-        top_padj = get_topright_padj(key, default_padj=padj_cutoff)
-        st.caption(
-            f"Effective: NAS high padj < {nas_padj:.3f}, NAS high log2FC > {nas_lfc:.2f}; "
-            f"Top-right padj < {top_padj:.3f}"
-        )
+    nas_padj, nas_lfc = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
+    top_padj = get_topright_padj(key, default_padj=padj_cutoff)
 
     nas_high_df = info["nas_high"]
     nas_low_df = info["nas_low"]
