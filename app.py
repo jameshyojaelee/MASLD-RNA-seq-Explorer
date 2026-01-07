@@ -1,5 +1,5 @@
 """Streamlit app to count upregulated DEGs by adjustable cutoffs.
-Usage: streamlit run RNA-seq/apps/deg_counts_app.py
+Usage: streamlit run streamlit_deg_explorer/app.py
 """
 
 from __future__ import annotations
@@ -67,8 +67,6 @@ PATIENT_CROSS_COMPARISONS = {
     "NAS low": "nas_low",
     "Fibrosis": "fibrosis",
 }
-PATIENT_CROSS_LFC_CUTOFF = 0.0
-
 BUNDLED_INHOUSE_MCD_FILES = {
     "MCD Week 1": "mcd_week1.tsv.gz",
     "MCD Week 2": "mcd_week2.tsv.gz",
@@ -235,9 +233,10 @@ def top_right_set(
 def cross_dataset_top_right_set(
     df_a: pd.DataFrame,
     df_b: pd.DataFrame,
+    padj_cutoff: float,
     log2fc_cutoff: float,
 ) -> set[str]:
-    return lfc_positive_set(df_a, log2fc_cutoff) & lfc_positive_set(df_b, log2fc_cutoff)
+    return upregulated_set(df_a, padj_cutoff, log2fc_cutoff) & upregulated_set(df_b, padj_cutoff, log2fc_cutoff)
 
 
 def top_right_count(
@@ -403,7 +402,7 @@ st.markdown(
 - **Mouse (external MCD GEO)**: **GSE156918** and **GSE205974** Control vs MCD contrasts.
 - **Patient (human)**: GEO datasets **GSE130970** and **GSE135251** (NAFLD/NASH/MASLD cohorts).
 - This app reports **upregulated DEGs only** (log2FC > cutoff) and lets you adjust padj/log2FC cutoffs globally or per-dataset.
-- **Patient (cross-dataset)**: top-right quadrant overlaps (log2FC > 0 in both datasets; no padj cutoff).
+- **Patient (cross-dataset)**: top-right quadrant overlaps using the global padj/log2FC cutoffs.
 
 **Citations / datasets**: GEO **GSE156918**, **GSE205974**, **GSE130970**, **GSE135251**, and in-house MCD RNA-seq (week 1–3 diet contrasts).
 """
@@ -414,8 +413,7 @@ log2fc_cutoff = st.slider("Global log2FC cutoff (upregulated only)", 0.0, 5.0, 0
 
 st.caption(
     "Within-dataset top-right uses a dataset-specific padj cutoff (defaults to the global padj unless overridden), "
-    "and log2FC cutoff applies only to NAS high. Cross-dataset top-right uses log2FC > 0 in both datasets with "
-    "no padj filtering."
+    "and log2FC cutoff applies only to NAS high. Cross-dataset top-right uses the global padj/log2FC cutoffs."
 )
 
 # Load MCD data (in-house + external)
@@ -603,18 +601,18 @@ if info_a and info_b and not info_a.get("error") and not info_b.get("error") and
         df_b = info_b.get(comp_key)
         if df_a is None or df_b is None:
             continue
-        cross_set = cross_dataset_top_right_set(df_a, df_b, PATIENT_CROSS_LFC_CUTOFF)
+        cross_set = cross_dataset_top_right_set(df_a, df_b, padj_cutoff, log2fc_cutoff)
         cross_dataset_rows.append(
             {
                 "group": "Patient (cross-dataset)",
                 "dataset": f"{pair_a} vs {pair_b}",
-                "analysis": f"{comp_label} (lfc>0 both)",
-                "padj": "none",
-                "log2FC": f">{PATIENT_CROSS_LFC_CUTOFF}",
+                "analysis": f"{comp_label} (top-right)",
+                "padj": padj_cutoff,
+                "log2FC": f">{log2fc_cutoff}",
                 "count": len(cross_set),
             }
         )
-        summary_sets[make_label("Patient (cross-dataset)", f"{pair_a} vs {pair_b}", f"{comp_label} (lfc>0 both)")] = {
+        summary_sets[make_label("Patient (cross-dataset)", f"{pair_a} vs {pair_b}", f"{comp_label} (top-right)")] = {
             "species": "human",
             "genes": cross_set,
         }
@@ -672,10 +670,6 @@ if summary_rows:
                     contrib_df = build_contribution_table(selected_sets, combo_counts, dedup_total)
                     st.markdown("**Per-set contribution to the deduplicated union**")
                     render_table(contrib_df)
-
-                    combo_df = build_combo_table(combo_counts, dedup_total)
-                    st.markdown("**Exact combination counts (deduplicated union)**")
-                    render_table(combo_df)
 
                     bar_df = contrib_df[["set", "unique_only", "shared_any"]].copy()
                     bar_df = bar_df.set_index("set")
@@ -799,7 +793,7 @@ for dataset, info in patient_data.items():
     ]
     render_table(pd.DataFrame(patient_rows))
 
-st.subheader("Patient (cross-dataset) — top-right quadrant (lfc>0 only)")
+st.subheader("Patient (cross-dataset) — top-right quadrant")
 if not cross_dataset_rows:
     st.info("Cross-dataset top-right sets are unavailable (missing or incomplete patient runs).")
 else:
