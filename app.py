@@ -631,7 +631,6 @@ summary_rows = []
 summary_sets: dict[str, dict[str, object]] = {}
 raw_sets: dict[str, set[str]] = {}
 dedup_sets: dict[str, set[str]] = {}
-active_labels: list[str] = []
 cross_dataset_rows: list[dict[str, object]] = []
 cross_dataset_sets: dict[str, set[str]] = {}
 
