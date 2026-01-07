@@ -43,6 +43,11 @@ INHOUSE_MCD_PATHS = {
     / "in-house_MCD_RNAseq"
     / "analysis_v5_week3MCD_vs_controls"
     / "deseq2_results.tsv",
+    "MCD Week pooled (combined)": ROOT
+    / "RNA-seq"
+    / "in-house_MCD_RNAseq"
+    / "analysis_v1_weekPooled_combined"
+    / "deseq2_results.tsv",
 }
 
 EXTERNAL_MCD_PATHS = {
@@ -67,10 +72,13 @@ PATIENT_CROSS_COMPARISONS = {
     "NAS low": "nas_low",
     "Fibrosis": "fibrosis",
 }
+
+INHOUSE_MCD_WEEK_LABELS = {"MCD Week 1", "MCD Week 2", "MCD Week 3"}
 BUNDLED_INHOUSE_MCD_FILES = {
     "MCD Week 1": "mcd_week1.tsv.gz",
     "MCD Week 2": "mcd_week2.tsv.gz",
     "MCD Week 3": "mcd_week3.tsv.gz",
+    "MCD Week pooled (combined)": "mcd_week_pooled_combined.tsv.gz",
 }
 
 BUNDLED_EXTERNAL_MCD_FILES = {
@@ -460,12 +468,13 @@ active_labels: list[str] = []
 cross_dataset_rows: list[dict[str, object]] = []
 cross_dataset_sets: dict[str, set[str]] = {}
 
-inhouse_mcd_sets = []
+inhouse_mcd_week_sets = []
 for label, df in inhouse_mcd_frames.items():
     key = f"inhouse_mcd_{slugify(label)}"
     padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
     gene_set = upregulated_set(df, padj_eff, lfc_eff)
-    inhouse_mcd_sets.append(gene_set)
+    if label in INHOUSE_MCD_WEEK_LABELS:
+        inhouse_mcd_week_sets.append(gene_set)
     summary_rows.append(
         {
             "group": "MCD (in-house)",
@@ -478,8 +487,8 @@ for label, df in inhouse_mcd_frames.items():
     )
     summary_sets[make_label("MCD (in-house)", "mouse", label)] = {"species": "mouse", "genes": gene_set}
 
-if inhouse_mcd_sets:
-    mcd_intersection = set.intersection(*inhouse_mcd_sets)
+if inhouse_mcd_week_sets:
+    mcd_intersection = set.intersection(*inhouse_mcd_week_sets)
     summary_rows.append(
         {
             "group": "MCD (in-house)",
@@ -632,15 +641,18 @@ if summary_rows:
     )
     raw_sets = {label: entry["genes"] for label, entry in summary_sets.items()}
     all_labels = list(raw_sets.keys())
+    st.info("Select the datasets/analyses you want to include in totals, overlaps, and contribution breakdowns.")
     active_labels = st.multiselect(
-        "Include in totals & downstream analyses",
+        "Choose datasets/analyses to include",
         options=all_labels,
-        default=all_labels,
+        default=[],
     )
 
     total_count = int(summary_df[summary_df["label"].isin(active_labels)]["count"].sum()) if active_labels else 0
     st.metric("Total DEGs (sum of selected counts)", total_count)
     st.caption("Total is a simple sum across selected summary rows (not de-duplicated).")
+    if not active_labels:
+        st.info("No datasets selected yet. Pick one or more above to populate the downstream analyses.")
 
     dedup_sets = {}
     if ORTHOLOG_PATH is not None:
@@ -683,7 +695,7 @@ if summary_rows:
 st.subheader("MCD (in-house) — individual cutoffs")
 
 inhouse_detail_rows = []
-inhouse_sets = []
+inhouse_week_sets = []
 for label, df in inhouse_mcd_frames.items():
     key = f"inhouse_mcd_{slugify(label)}"
     with st.expander(f"{label} settings", expanded=False):
@@ -696,16 +708,17 @@ for label, df in inhouse_mcd_frames.items():
 
     padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
     gene_set = upregulated_set(df, padj_eff, lfc_eff)
-    inhouse_sets.append(gene_set)
+    if label in INHOUSE_MCD_WEEK_LABELS:
+        inhouse_week_sets.append(gene_set)
     inhouse_detail_rows.append({"analysis": label, "padj": padj_eff, "log2FC": lfc_eff, "count": len(gene_set)})
 
-if inhouse_sets:
+if inhouse_week_sets:
     inhouse_detail_rows.append(
         {
             "analysis": "MCD Week1/2/3 Intersection",
             "padj": "varies",
             "log2FC": "varies",
-            "count": intersection_count_from_sets(inhouse_sets),
+            "count": intersection_count_from_sets(inhouse_week_sets),
         }
     )
 
