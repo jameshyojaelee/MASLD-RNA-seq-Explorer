@@ -678,9 +678,13 @@ st.markdown(
   .mouse-widget {
     position: fixed;
     top: 12px;
-    right: 18px;
+    right: 80px;
     z-index: 999999;
     pointer-events: none;
+  }
+  .mouse-scale {
+    transform: scale(3);
+    transform-origin: top right;
   }
   .mouse {
     width: 36px;
@@ -761,13 +765,15 @@ st.markdown(
   }
 </style>
 <div class="mouse-widget" aria-hidden="true">
-  <div class="mouse">
-    <div class="ear ear-left"></div>
-    <div class="ear ear-right"></div>
-    <div class="eye eye-left"></div>
-    <div class="eye eye-right"></div>
-    <div class="snout"></div>
-    <div class="tail"></div>
+  <div class="mouse-scale">
+    <div class="mouse">
+      <div class="ear ear-left"></div>
+      <div class="ear ear-right"></div>
+      <div class="eye eye-left"></div>
+      <div class="eye eye-right"></div>
+      <div class="snout"></div>
+      <div class="tail"></div>
+    </div>
   </div>
 </div>
 """,
