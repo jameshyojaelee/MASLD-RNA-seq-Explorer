@@ -1079,10 +1079,13 @@ with st.expander("Distributions", expanded=False):
                     x=alt.X("tpm_plot:Q", title=x_title),
                     y=alt.Y("density:Q", stack=None, title=None, axis=None),
                     yOffset=alt.YOffset("dataset:N", sort=tpm_order),
-                    color=alt.Color("dataset:N", legend=alt.Legend(title="Dataset")),
+                    color=alt.Color(
+                        "dataset:N",
+                        legend=alt.Legend(title="Dataset", orient="bottom", columns=2),
+                    ),
                     tooltip=["dataset:N", "tpm:Q", "tpm_plot:Q", "density:Q"],
                 )
-                .properties(height=20 * len(tpm_order))
+                .properties(height=28 * len(tpm_order))
             )
             st.markdown("**TPM distribution (ridgeline)**")
             st.altair_chart(density, use_container_width=True)
