@@ -540,6 +540,56 @@ def get_tpm_cutoff(key: str, default_tpm: float) -> float:
     return st.session_state.get(f"{key}_tpm", default_tpm)
 
 
+def _sync_number_to_slider(key_base: str) -> None:
+    value = st.session_state.get(f"{key_base}_number")
+    st.session_state[f"{key_base}_val"] = value
+    st.session_state[f"{key_base}_slider"] = value
+
+
+def _sync_slider_to_number(key_base: str) -> None:
+    value = st.session_state.get(f"{key_base}_slider")
+    st.session_state[f"{key_base}_val"] = value
+    st.session_state[f"{key_base}_number"] = value
+
+
+def synced_cutoff(
+    label: str,
+    min_value: float,
+    max_value: float,
+    default: float,
+    step: float,
+    key_base: str,
+    format_str: str | None = None,
+) -> float:
+    if f"{key_base}_val" not in st.session_state:
+        st.session_state[f"{key_base}_val"] = default
+    col_num, col_slider = st.columns([1, 3])
+    with col_num:
+        st.number_input(
+            f"{label} (value)",
+            min_value,
+            max_value,
+            step=step,
+            value=st.session_state[f"{key_base}_val"],
+            key=f"{key_base}_number",
+            format=format_str,
+            on_change=_sync_number_to_slider,
+            args=(key_base,),
+        )
+    with col_slider:
+        st.slider(
+            label,
+            min_value,
+            max_value,
+            step=step,
+            value=st.session_state[f"{key_base}_val"],
+            key=f"{key_base}_slider",
+            on_change=_sync_slider_to_number,
+            args=(key_base,),
+        )
+    return st.session_state[f"{key_base}_val"]
+
+
 st.set_page_config(page_title="MASLD RNA-seq DEG Explorer", layout="wide")
 
 st.title("MASLD RNA-seq DEG Explorer")
@@ -725,10 +775,34 @@ with col_human:
     if opts:
         active_labels.extend(selection_component("Cross-dataset", opts, "cross"))
 
-# ===== Global Sliders =====
-padj_cutoff = st.slider("Global padj cutoff (MCD + NAS high)", 0.0, 0.2, 0.1, 0.005)
-log2fc_cutoff = st.slider("Global log2FC cutoff (upregulated only)", 0.0, 5.0, 0.0, 0.1)
-tpm_cutoff = st.slider("Global TPM cutoff (mean TPM per dataset)", 0.0, float(tpm_slider_max), 0.0, 0.1)
+# ===== Global Sliders + Inputs =====
+padj_cutoff = synced_cutoff(
+    "Global padj cutoff (MCD + NAS high)",
+    0.0,
+    0.2,
+    0.1,
+    0.005,
+    "global_padj",
+    format_str="%.4f",
+)
+log2fc_cutoff = synced_cutoff(
+    "Global log2FC cutoff (upregulated only)",
+    0.0,
+    5.0,
+    0.0,
+    0.1,
+    "global_log2fc",
+    format_str="%.3f",
+)
+tpm_cutoff = synced_cutoff(
+    "Global TPM cutoff (mean TPM per dataset)",
+    0.0,
+    float(tpm_slider_max),
+    0.0,
+    0.1,
+    "global_tpm",
+    format_str="%.2f",
+)
 
 st.caption(
     "Within-dataset top-right uses a dataset-specific padj cutoff (defaults to the global padj unless overridden), "
