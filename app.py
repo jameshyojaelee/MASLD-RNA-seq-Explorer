@@ -613,7 +613,7 @@ st.markdown(
     position: fixed;
     top: 12px;
     right: 18px;
-    z-index: 1000;
+    z-index: 999999;
     pointer-events: none;
   }
   .mouse {
