@@ -166,6 +166,84 @@ def strip_version(gene_id: str) -> str:
     return gene_id.split(".")[0] if isinstance(gene_id, str) else gene_id
 
 
+def add_tpm_from_map(df: pd.DataFrame, tpm_map: dict[str, float] | None) -> pd.DataFrame:
+    if not tpm_map or "tpm_mean" in df.columns:
+        return df
+    tpm_map_stripped = {strip_version(k): v for k, v in tpm_map.items()}
+    gene_ids = df["gene_id"].astype(str)
+    tpm_series = gene_ids.map(tpm_map)
+    missing = tpm_series.isna()
+    if missing.any():
+        tpm_series.loc[missing] = gene_ids.loc[missing].map(lambda x: tpm_map_stripped.get(strip_version(x)))
+    df = df.copy()
+    df["tpm_mean"] = tpm_series
+    return df
+
+
+def compute_tpm_mean(counts: pd.DataFrame, lengths: pd.Series) -> pd.Series:
+    lengths = lengths.dropna()
+    lengths = lengths[lengths > 0]
+    shared = counts.index.intersection(lengths.index)
+    counts = counts.loc[shared]
+    lengths = lengths.loc[shared]
+    length_kb = lengths / 1000.0
+    rpk = counts.div(length_kb, axis=0)
+    scale = rpk.sum(axis=0) / 1e6
+    tpm = rpk.div(scale, axis=1)
+    return tpm.mean(axis=1, skipna=True)
+
+
+def read_featurecounts_counts(path: Path) -> tuple[pd.Series, pd.DataFrame]:
+    df = pd.read_csv(path, sep="\t", comment="#")
+    cols = {c.lower(): c for c in df.columns}
+    gene_col = cols.get("geneid") or cols.get("gene_id") or cols.get("gene")
+    length_col = cols.get("length")
+    if gene_col is None or length_col is None:
+        raise ValueError(f"Missing Geneid/Length columns in {path}")
+    meta_cols = {gene_col, length_col}
+    for key in ("chr", "start", "end", "strand"):
+        col = cols.get(key)
+        if col is not None:
+            meta_cols.add(col)
+    sample_cols = [c for c in df.columns if c not in meta_cols]
+    gene_ids = df[gene_col].astype(str)
+    lengths = pd.to_numeric(df[length_col], errors="coerce")
+    counts = df[sample_cols].apply(pd.to_numeric, errors="coerce")
+    counts.index = gene_ids
+    lengths.index = gene_ids
+    return lengths, counts
+
+
+@st.cache_data(show_spinner=False)
+def load_tpm_map_from_featurecounts(path: Path) -> dict[str, float] | None:
+    if not path.exists():
+        return None
+    lengths, counts = read_featurecounts_counts(path)
+    tpm = compute_tpm_mean(counts, lengths)
+    return tpm.to_dict()
+
+
+@st.cache_data(show_spinner=False)
+def load_tpm_map_from_counts_matrix(counts_path: Path, length_source: Path) -> dict[str, float] | None:
+    if not counts_path.exists() or not length_source.exists():
+        return None
+    counts_df = pd.read_csv(counts_path, sep="\t")
+    gene_col = counts_df.columns[0]
+    counts = counts_df.set_index(gene_col)
+    counts = counts.apply(pd.to_numeric, errors="coerce")
+
+    lengths_df = pd.read_csv(length_source, sep="\t", comment="#")
+    cols = {c.lower(): c for c in lengths_df.columns}
+    gene_col = cols.get("geneid") or cols.get("gene_id") or cols.get("gene")
+    length_col = cols.get("length")
+    if gene_col is None or length_col is None:
+        return None
+    lengths = pd.to_numeric(lengths_df[length_col], errors="coerce")
+    lengths.index = lengths_df[gene_col].astype(str)
+    tpm = compute_tpm_mean(counts, lengths)
+    return tpm.to_dict()
+
+
 @st.cache_data(show_spinner=False)
 def load_ortholog_map(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path, sep="\t")
@@ -484,21 +562,58 @@ st.markdown(
 
 # Load MCD data (in-house + external)
 inhouse_mcd_frames = {}
+inhouse_tpm_map = None
+if DATA_DIR is None:
+    inhouse_tpm_map = load_tpm_map_from_featurecounts(
+        ROOT / "RNA-seq" / "in-house_MCD_RNAseq" / "counts" / "featurecounts" / "gene_counts.txt"
+    )
 for label, path in get_inhouse_mcd_paths().items():
     if not path.exists():
         st.warning(f"Missing in-house MCD file: {path}")
         continue
-    inhouse_mcd_frames[label] = load_mcd_tsv(path)
+    df = load_mcd_tsv(path)
+    df = add_tpm_from_map(df, inhouse_tpm_map)
+    inhouse_mcd_frames[label] = df
 
 external_mcd_frames = {}
+external_tpm_maps: dict[str, dict[str, float] | None] = {}
+if DATA_DIR is None:
+    external_tpm_maps = {
+        "GSE156918 (external MCD)": load_tpm_map_from_featurecounts(
+            ROOT / "RNA-seq" / "other_MCD_RNAseq" / "GSE156918" / "counts" / "featurecounts" / "gene_counts.txt"
+        ),
+        "GSE205974 (external MCD)": load_tpm_map_from_featurecounts(
+            ROOT / "RNA-seq" / "other_MCD_RNAseq" / "GSE205974" / "counts" / "featurecounts" / "gene_counts.txt"
+        ),
+    }
 for label, path in get_external_mcd_paths().items():
     if not path.exists():
         st.warning(f"Missing external MCD file: {path}")
         continue
-    external_mcd_frames[label] = load_mcd_tsv(path)
+    df = load_mcd_tsv(path)
+    df = add_tpm_from_map(df, external_tpm_maps.get(label))
+    external_mcd_frames[label] = df
 
 # Load patient data for both datasets
 patient_data = {}
+patient_tpm_maps: dict[str, dict[str, float] | None] = {}
+if DATA_DIR is None:
+    gse130970_counts = ROOT / "RNA-seq" / "patient_RNAseq" / "results" / "GSE130970" / "counts"
+    gse135251_counts = ROOT / "RNA-seq" / "patient_RNAseq" / "results" / "GSE135251" / "counts"
+    gse130970_length_source = next(gse130970_counts.glob("individual/*_counts.txt"), None)
+    gse135251_length_source = next(gse135251_counts.glob("individual/*_counts.txt"), None)
+    patient_tpm_maps = {
+        "GSE130970": load_tpm_map_from_counts_matrix(
+            gse130970_counts / "gene_counts_matrix.txt", gse130970_length_source
+        )
+        if gse130970_length_source
+        else None,
+        "GSE135251": load_tpm_map_from_counts_matrix(
+            gse135251_counts / "gene_counts_matrix.txt", gse135251_length_source
+        )
+        if gse135251_length_source
+        else None,
+    }
 for dataset in PATIENT_DATASETS:
     paths = patient_paths(dataset)
     if paths is None:
@@ -508,11 +623,18 @@ for dataset in PATIENT_DATASETS:
     if missing:
         patient_data[dataset] = {"paths": paths, "error": f"Missing files: {', '.join(missing)}"}
         continue
+    nas_high = load_patient_csv(paths["nas_high"])
+    nas_low = load_patient_csv(paths["nas_low"])
+    fibrosis = load_patient_csv(paths["fibrosis"])
+    tpm_map = patient_tpm_maps.get(dataset)
+    nas_high = add_tpm_from_map(nas_high, tpm_map)
+    nas_low = add_tpm_from_map(nas_low, tpm_map)
+    fibrosis = add_tpm_from_map(fibrosis, tpm_map)
     patient_data[dataset] = {
         "paths": paths,
-        "nas_high": load_patient_csv(paths["nas_high"]),
-        "nas_low": load_patient_csv(paths["nas_low"]),
-        "fibrosis": load_patient_csv(paths["fibrosis"]),
+        "nas_high": nas_high,
+        "nas_low": nas_low,
+        "fibrosis": fibrosis,
     }
 
 # ===== TPM slider bounds =====
