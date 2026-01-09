@@ -1466,36 +1466,6 @@ if summary_rows:
                 st.caption(
                     "Mouse genes are mapped to human Ensembl orthologs for cross-species de-duplication."
                 )
-                # Cross-species mapping summary (bidirectional)
-                mapping_rows = []
-                for label in selected_sets:
-                    source_entry = summary_sets[label]
-                    genes = source_entry["genes"]
-                    species = source_entry["species"]
-                    if species == "mouse":
-                        mapped, unmapped, target_count = mapped_counts(genes, mouse_to_human)
-                        target_species = "human"
-                    else:
-                        mapped, unmapped, target_count = mapped_counts(genes, human_to_mouse)
-                        target_species = "mouse"
-                    total = mapped + unmapped
-                    mapping_rows.append(
-                        {
-                            "set": label,
-                            "from_species": species,
-                            "to_species": target_species,
-                            "input_genes": total,
-                            "mapped_genes": mapped,
-                            "unmapped_genes": unmapped,
-                            "mapped_%": (mapped / total) if total else 0.0,
-                            "unique_targets": target_count,
-                        }
-                    )
-                mapping_df = pd.DataFrame(mapping_rows)
-                if not mapping_df.empty:
-                    mapping_df["mapped_%"] = mapping_df["mapped_%"].map(lambda x: f"{x:.2%}")
-                    st.markdown("**Cross-species mapping summary**")
-                    render_table(mapping_df)
                 st.markdown("**DEG contribution breakdown**")
                 if dedup_total == 0:
                     st.info("No genes available for contribution breakdown at current cutoffs.")
@@ -1578,6 +1548,37 @@ if summary_rows:
                             )
                         st.bar_chart(breakdown.set_index("biotype")["count"], width="stretch")
                         render_table(breakdown)
+                with st.expander("Cross-species mapping summary", expanded=False):
+                    mapping_rows = []
+                    for label in selected_sets:
+                        source_entry = summary_sets[label]
+                        genes = source_entry["genes"]
+                        species = source_entry["species"]
+                        if species == "mouse":
+                            mapped, unmapped, target_count = mapped_counts(genes, mouse_to_human)
+                            target_species = "human"
+                        else:
+                            mapped, unmapped, target_count = mapped_counts(genes, human_to_mouse)
+                            target_species = "mouse"
+                        total = mapped + unmapped
+                        mapping_rows.append(
+                            {
+                                "set": label,
+                                "from_species": species,
+                                "to_species": target_species,
+                                "input_genes": total,
+                                "mapped_genes": mapped,
+                                "unmapped_genes": unmapped,
+                                "mapped_%": (mapped / total) if total else 0.0,
+                                "unique_targets": target_count,
+                            }
+                        )
+                    mapping_df = pd.DataFrame(mapping_rows)
+                    if mapping_df.empty:
+                        st.info("No mapping summary available for the current selection.")
+                    else:
+                        mapping_df["mapped_%"] = mapping_df["mapped_%"].map(lambda x: f"{x:.2%}")
+                        render_table(mapping_df)
     else:
         st.info("Ortholog map not found; cross-species de-duplication and overlaps are disabled.")
 
