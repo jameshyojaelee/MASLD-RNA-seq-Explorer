@@ -164,6 +164,48 @@ def strip_version(gene_id: str) -> str:
     return gene_id.split(".")[0] if isinstance(gene_id, str) else gene_id
 
 
+@st.cache_data(show_spinner=False)
+def load_human_symbol_map(paths: list[Path]) -> dict[str, str]:
+    symbol_map: dict[str, str] = {}
+    for path in paths:
+        if not path.exists():
+            continue
+        df = pd.read_csv(path)
+        cols = {c.lower(): c for c in df.columns}
+        gene_col = cols.get("ensembl_gene_id")
+        gene_ver_col = cols.get("ensembl_gene_id_versioned")
+        symbol_col = cols.get("external_gene_name")
+        if gene_col is None or symbol_col is None:
+            continue
+        for row in df.itertuples(index=False):
+            gene_id = getattr(row, gene_col)
+            symbol = getattr(row, symbol_col)
+            if isinstance(gene_id, str) and isinstance(symbol, str) and symbol:
+                symbol_map.setdefault(strip_version(gene_id), symbol)
+            if gene_ver_col is not None:
+                gene_ver = getattr(row, gene_ver_col)
+                if isinstance(gene_ver, str) and isinstance(symbol, str) and symbol:
+                    symbol_map.setdefault(strip_version(gene_ver), symbol)
+    return symbol_map
+
+
+@st.cache_data(show_spinner=False)
+def load_mouse_symbol_map(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    symbol_map: dict[str, str] = {}
+    with path.open() as fh:
+        first = fh.readline()
+        for line in fh:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 2:
+                continue
+            gene_id, gene_name = parts[0], parts[1]
+            if gene_id and gene_name:
+                symbol_map.setdefault(strip_version(gene_id), gene_name)
+    return symbol_map
+
+
 def add_tpm_from_map(df: pd.DataFrame, tpm_map: dict[str, float] | None) -> pd.DataFrame:
     if not tpm_map or "tpm_mean" in df.columns:
         return df
@@ -1455,7 +1497,43 @@ if summary_rows:
             dedup_total = len(union_genes)
             st.metric("Total DEGs (deduplicated across mouse+human)", dedup_total)
             if dedup_total:
-                dedup_df = pd.DataFrame({"gene_id": sorted(union_genes)})
+                human_symbol_map = load_human_symbol_map(
+                    [
+                        ROOT
+                        / "RNA-seq"
+                        / "patient_RNAseq"
+                        / "results"
+                        / "GSE130970"
+                        / "edgeR_results"
+                        / "edgeR_optimized_20250622_073427"
+                        / "results"
+                        / "gene_annotations.csv",
+                        ROOT
+                        / "RNA-seq"
+                        / "patient_RNAseq"
+                        / "results"
+                        / "GSE135251"
+                        / "edgeR_results"
+                        / "edgeR_with_gene_names_20250621_171101"
+                        / "results"
+                        / "gene_annotations.csv",
+                    ]
+                )
+                mouse_symbol_map = load_mouse_symbol_map(
+                    ROOT / "RNA-seq" / "in-house_MCD_RNAseq" / "reference" / "indices" / "star" / "geneInfo.tab"
+                )
+                rows = []
+                for gid in sorted(union_genes):
+                    if gid.startswith("MOUSE:"):
+                        raw_id = gid.split("MOUSE:", 1)[1]
+                        species = "mouse"
+                        symbol = mouse_symbol_map.get(strip_version(raw_id), "")
+                    else:
+                        raw_id = gid
+                        species = "human"
+                        symbol = human_symbol_map.get(strip_version(raw_id), "")
+                    rows.append({"gene_id": gid, "species": species, "gene_symbol": symbol})
+                dedup_df = pd.DataFrame(rows)
                 csv_bytes = dedup_df.to_csv(index=False).encode("utf-8")
                 st.download_button(
                     "Download deduplicated genes (CSV)",
