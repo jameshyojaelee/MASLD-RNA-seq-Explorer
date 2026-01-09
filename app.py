@@ -322,6 +322,19 @@ def tpm_mask(df: pd.DataFrame, tpm_cutoff: float) -> pd.Series:
     return df["tpm_mean"] >= tpm_cutoff
 
 
+def log2fc_series(
+    df: pd.DataFrame,
+    padj_cutoff: float,
+    tpm_cutoff: float,
+    log2fc_cutoff: float | None = None,
+) -> pd.Series:
+    mask = df["padj"] < padj_cutoff
+    if log2fc_cutoff is not None:
+        mask &= df["log2FoldChange"] > log2fc_cutoff
+    mask &= tpm_mask(df, tpm_cutoff)
+    return df.loc[mask, "log2FoldChange"]
+
+
 def upregulated_set(
     df: pd.DataFrame,
     padj_cutoff: float,
@@ -1001,6 +1014,131 @@ with st.expander("Dataset-specific overrides (Advanced)"):
             st.number_input(f"log2FC", 0.0, 10.0, log2fc_cutoff, 0.1, key=f"{key}_lfc")
         with c4:
             st.number_input(f"TPM", 0.0, float(tpm_slider_max), tpm_cutoff, 0.1, key=f"{key}_tpm")
+
+# ===== Distributions =====
+with st.expander("Distributions", expanded=False):
+    try:
+        import altair as alt
+    except Exception:
+        st.info("Altair not available for distribution plots.")
+    else:
+        # TPM ridgeline (per dataset)
+        tpm_rows = []
+        tpm_order = []
+        # In-house MCD (single dataset)
+        if inhouse_mcd_frames:
+            label = "MCD (in-house)"
+            df = next(iter(inhouse_mcd_frames.values()))
+            if "tpm_mean" in df.columns:
+                tpm_rows.extend(
+                    {"dataset": label, "tpm": float(val)} for val in df["tpm_mean"].dropna().values
+                )
+                tpm_order.append(label)
+        # External MCD (GSEs)
+        for label, df in external_mcd_frames.items():
+            short = label.split(" ")[0]
+            if "tpm_mean" in df.columns:
+                tpm_rows.extend(
+                    {"dataset": short, "tpm": float(val)} for val in df["tpm_mean"].dropna().values
+                )
+                tpm_order.append(short)
+        # Patient datasets (use NAS high table as representative)
+        for dataset, info in patient_data.items():
+            if info.get("error") or info.get("paths") is None:
+                continue
+            df = info["nas_high"]
+            if "tpm_mean" in df.columns:
+                tpm_rows.extend(
+                    {"dataset": dataset, "tpm": float(val)} for val in df["tpm_mean"].dropna().values
+                )
+                tpm_order.append(dataset)
+
+        if tpm_rows:
+            tpm_df = pd.DataFrame(tpm_rows)
+            density = (
+                alt.Chart(tpm_df)
+                .transform_density("tpm", groupby=["dataset"], as_=["tpm", "density"])
+                .mark_area(interpolate="monotone", fillOpacity=0.6, stroke="white", strokeWidth=0.5)
+                .encode(
+                    x=alt.X("tpm:Q", title="TPM (mean per dataset)"),
+                    y=alt.Y("density:Q", stack=None, title=None, axis=None),
+                    yOffset=alt.YOffset("dataset:N", sort=tpm_order),
+                    color=alt.Color("dataset:N", legend=alt.Legend(title="Dataset")),
+                    tooltip=["dataset:N", "tpm:Q", "density:Q"],
+                )
+                .properties(height=20 * len(tpm_order))
+            )
+            st.markdown("**TPM distribution (ridgeline)**")
+            st.altair_chart(density, use_container_width=True)
+        else:
+            st.info("TPM distribution unavailable (no TPM columns found).")
+
+        # Log2FC distribution (box/violin grid)
+        log_rows = []
+        log_order = []
+        # In-house MCD
+        for label, df in inhouse_mcd_frames.items():
+            key = f"inhouse_mcd_{slugify(label)}"
+            padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
+            tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
+            series = log2fc_series(df, padj_eff, tpm_eff, log2fc_cutoff=lfc_eff)
+            if not series.empty:
+                name = f"MCD (in-house) | {label}"
+                log_rows.extend({"analysis": name, "group": "MCD (in-house)", "log2FC": float(v)} for v in series.values)
+                log_order.append(name)
+        # External MCD
+        for label, df in external_mcd_frames.items():
+            key = f"external_mcd_{slugify(label)}"
+            padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
+            tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
+            series = log2fc_series(df, padj_eff, tpm_eff, log2fc_cutoff=lfc_eff)
+            if not series.empty:
+                name = f"MCD (external) | {label.split(' ')[0]}"
+                log_rows.extend({"analysis": name, "group": "MCD (external)", "log2FC": float(v)} for v in series.values)
+                log_order.append(name)
+        # Patient datasets
+        for dataset, info in patient_data.items():
+            if info.get("error") or info.get("paths") is None:
+                continue
+            key = f"patient_{slugify(dataset)}"
+            nas_padj, nas_lfc = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
+            top_padj = get_topright_padj(key, default_padj=padj_cutoff)
+            tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
+
+            series = log2fc_series(info["nas_high"], nas_padj, tpm_eff, log2fc_cutoff=nas_lfc)
+            if not series.empty:
+                name = f"Patient | {dataset} NAS high"
+                log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
+                log_order.append(name)
+
+            for label, df in (("NAS low", info["nas_low"]), ("Fibrosis", info["fibrosis"])):
+                series = log2fc_series(df, top_padj, tpm_eff, log2fc_cutoff=None)
+                if not series.empty:
+                    name = f"Patient | {dataset} {label}"
+                    log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
+                    log_order.append(name)
+
+        if log_rows:
+            log_df = pd.DataFrame(log_rows)
+            log_chart = (
+                alt.Chart(log_df)
+                .mark_boxplot(size=12, extent="min-max")
+                .encode(
+                    x=alt.X("log2FC:Q", title="log2FoldChange (filtered by current cutoffs)"),
+                    y=alt.Y("analysis:N", sort=log_order, title=None),
+                    color=alt.Color("group:N", legend=alt.Legend(title="Group")),
+                    tooltip=["analysis:N", "log2FC:Q"],
+                )
+                .properties(height=18 * len(log_order))
+            )
+            st.markdown("**Log2FC distribution (box/violin grid)**")
+            st.altair_chart(log_chart, use_container_width=True)
+            st.caption(
+                "NAS-low and Fibrosis distributions use padj+TPM only (no log2FC cutoff), "
+                "consistent with how top-right sets are defined."
+            )
+        else:
+            st.info("Log2FC distribution unavailable at current cutoffs.")
 
 # ===== Top summary =====
 st.subheader("Overall summary")
