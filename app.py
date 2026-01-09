@@ -1024,6 +1024,13 @@ with st.expander("Distributions", expanded=False):
         st.info("Altair not available for distribution plots.")
     else:
         # TPM ridgeline (per dataset)
+        tpm_view = st.radio(
+            "TPM view",
+            ["Log10(TPM + 1)", "Linear (p99 clipped)"],
+            index=0,
+            horizontal=True,
+            key="tpm_ridge_view",
+        )
         tpm_rows = []
         tpm_order = []
         # In-house MCD (single dataset)
@@ -1056,16 +1063,23 @@ with st.expander("Distributions", expanded=False):
 
         if tpm_rows:
             tpm_df = pd.DataFrame(tpm_rows)
+            if tpm_view == "Log10(TPM + 1)":
+                tpm_df["tpm_plot"] = np.log10(tpm_df["tpm"] + 1.0)
+                x_title = "log10(TPM + 1)"
+            else:
+                p99 = tpm_df["tpm"].quantile(0.99)
+                tpm_df["tpm_plot"] = tpm_df["tpm"].clip(upper=p99)
+                x_title = "TPM (clipped at p99)"
             density = (
                 alt.Chart(tpm_df)
-                .transform_density("tpm", groupby=["dataset"], as_=["tpm", "density"])
+                .transform_density("tpm_plot", groupby=["dataset"], as_=["tpm_plot", "density"])
                 .mark_area(interpolate="monotone", fillOpacity=0.6, stroke="white", strokeWidth=0.5)
                 .encode(
-                    x=alt.X("tpm:Q", title="TPM (mean per dataset)"),
+                    x=alt.X("tpm_plot:Q", title=x_title),
                     y=alt.Y("density:Q", stack=None, title=None, axis=None),
                     yOffset=alt.YOffset("dataset:N", sort=tpm_order),
                     color=alt.Color("dataset:N", legend=alt.Legend(title="Dataset")),
-                    tooltip=["dataset:N", "tpm:Q", "density:Q"],
+                    tooltip=["dataset:N", "tpm:Q", "tpm_plot:Q", "density:Q"],
                 )
                 .properties(height=20 * len(tpm_order))
             )
