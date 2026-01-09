@@ -872,6 +872,7 @@ with col_human:
     for dataset, info in patient_data.items():
         if not info.get("error") and info.get("paths"):
             opts.append((f"{dataset} NAS High", make_label("Patient", dataset, "NAS high (upregulated)")))
+            opts.append((f"{dataset} Fibrosis", make_label("Patient", dataset, "Fibrosis (upregulated)")))
             opts.append((f"{dataset} NAS High vs Fibrosis", make_label("Patient", dataset, "NAS high vs Fibrosis (top-right)")))
             opts.append((f"{dataset} NAS High vs Low", make_label("Patient", dataset, "NAS high vs NAS low (top-right)")))
     
@@ -1111,6 +1112,12 @@ with st.expander("Distributions", expanded=False):
                 log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
                 log_order.append(name)
 
+            series = log2fc_series(info["fibrosis"], nas_padj, tpm_eff, log2fc_cutoff=nas_lfc)
+            if not series.empty:
+                name = f"Patient | {dataset} Fibrosis (up)"
+                log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
+                log_order.append(name)
+
             for label, df in (("NAS low", info["nas_low"]), ("Fibrosis", info["fibrosis"])):
                 series = log2fc_series(df, top_padj, tpm_eff, log2fc_cutoff=None)
                 if not series.empty:
@@ -1245,6 +1252,7 @@ for dataset, info in patient_data.items():
     fibrosis_df = info["fibrosis"]
 
     nas_high_set = upregulated_set(nas_high_df, nas_padj, nas_lfc, tpm_eff)
+    fibrosis_set = upregulated_set(fibrosis_df, nas_padj, nas_lfc, tpm_eff)
     nas_high_vs_fibrosis_set = top_right_set(
         nas_high_df, fibrosis_df, nas_lfc, padj_cutoff=top_padj, tpm_cutoff=tpm_eff
     )
@@ -1266,6 +1274,21 @@ for dataset, info in patient_data.items():
     summary_sets[make_label("Patient", dataset, "NAS high (upregulated)")] = {
         "species": "human",
         "genes": nas_high_set,
+    }
+    summary_rows.append(
+        {
+            "group": "Patient",
+            "dataset": dataset,
+            "analysis": "Fibrosis (upregulated)",
+            "padj": nas_padj,
+            "log2FC": nas_lfc,
+            "tpm": tpm_eff if "tpm_mean" in fibrosis_df.columns else "missing",
+            "count": len(fibrosis_set),
+        }
+    )
+    summary_sets[make_label("Patient", dataset, "Fibrosis (upregulated)")] = {
+        "species": "human",
+        "genes": fibrosis_set,
     }
     summary_rows.append(
         {
@@ -1489,6 +1512,10 @@ with st.expander("Sanity check (padj=0.1, log2FC=0)"):
                 {
                     "analysis": "NAS high (upregulated)",
                     "count": len(upregulated_set(nas_high_df, 0.1, 0.0, tpm_cutoff)),
+                },
+                {
+                    "analysis": "Fibrosis (upregulated)",
+                    "count": len(upregulated_set(fibrosis_df, 0.1, 0.0, tpm_cutoff)),
                 },
                 {
                     "analysis": "NAS high vs Fibrosis (top-right)",
