@@ -17,7 +17,6 @@
 - Streamlit Cloud URL: https://masld-rna-seq-explorer-f9uhpppgfmcyadgbzx2zrr.streamlit.app/
 - Uses bundled data in ./data by default.
 - Env overrides:
-  - DEG_DATA_DIR: override data directory
   - DEG_ORTHOLOG_MAP: override ortholog map path
 
 ## Data inputs (bundled)

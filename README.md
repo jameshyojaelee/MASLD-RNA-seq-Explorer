@@ -27,7 +27,6 @@ python scripts/build_data_manifest.py
 
 ## Config
 Optional environment variable:
-- `DEG_DATA_DIR` — override where the app looks for the bundled DEG tables.
 - `DEG_ORTHOLOG_MAP` — override the ortholog mapping file path.
 
 ## Streamlit Community Cloud

@@ -20,10 +20,7 @@ for parent in APP_DIR.parents:
         ROOT = parent
         break
 
-DATA_DIR_ENV = os.environ.get("DEG_DATA_DIR")
-if DATA_DIR_ENV:
-    DATA_DIR = Path(DATA_DIR_ENV).expanduser().resolve()
-elif (APP_DIR / "data").exists():
+if (APP_DIR / "data").exists():
     DATA_DIR = APP_DIR / "data"
 else:
     DATA_DIR = None
