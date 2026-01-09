@@ -1071,24 +1071,44 @@ with st.expander("Distributions", expanded=False):
                 p99 = tpm_df["tpm"].quantile(0.99)
                 tpm_df["tpm_plot"] = tpm_df["tpm"].clip(upper=p99)
                 x_title = "TPM (clipped at p99)"
-            density = (
-                alt.Chart(tpm_df)
-                .transform_density("tpm_plot", groupby=["dataset"], as_=["tpm_plot", "density"])
-                .mark_area(interpolate="monotone", fillOpacity=0.6, stroke="white", strokeWidth=0.5)
-                .encode(
-                    x=alt.X("tpm_plot:Q", title=x_title),
-                    y=alt.Y("density:Q", stack=None, title=None, axis=None),
-                    yOffset=alt.YOffset("dataset:N", sort=tpm_order),
-                    color=alt.Color(
-                        "dataset:N",
-                        legend=alt.Legend(title="Dataset", orient="bottom", columns=2),
-                    ),
-                    tooltip=["dataset:N", "tpm:Q", "tpm_plot:Q", "density:Q"],
-                )
-                .properties(height=28 * len(tpm_order))
-            )
-            st.markdown("**TPM distribution (ridgeline)**")
-            st.altair_chart(density, use_container_width=True)
+            min_val = tpm_df["tpm_plot"].min()
+            max_val = tpm_df["tpm_plot"].max()
+            if pd.isna(min_val) or pd.isna(max_val) or min_val == max_val:
+                st.info("TPM distribution unavailable (insufficient variation).")
+            else:
+                bins = np.linspace(min_val, max_val, 80)
+                ridge_rows = []
+                for dataset in tpm_order:
+                    vals = tpm_df.loc[tpm_df["dataset"] == dataset, "tpm_plot"].dropna().values
+                    if vals.size < 2:
+                        continue
+                    hist, edges = np.histogram(vals, bins=bins, density=True)
+                    centers = (edges[:-1] + edges[1:]) / 2.0
+                    ridge_rows.extend(
+                        {"dataset": dataset, "tpm_plot": float(c), "density": float(d)}
+                        for c, d in zip(centers, hist)
+                    )
+                if not ridge_rows:
+                    st.info("TPM distribution unavailable (insufficient data).")
+                else:
+                    ridge_df = pd.DataFrame(ridge_rows)
+                    density = (
+                        alt.Chart(ridge_df)
+                        .mark_area(interpolate="monotone", fillOpacity=0.6, stroke="white", strokeWidth=0.5)
+                        .encode(
+                            x=alt.X("tpm_plot:Q", title=x_title),
+                            y=alt.Y("density:Q", stack=None, title=None, axis=None),
+                            yOffset=alt.YOffset("dataset:N", sort=tpm_order),
+                            color=alt.Color(
+                                "dataset:N",
+                                legend=alt.Legend(title="Dataset", orient="bottom", columns=2),
+                            ),
+                            tooltip=["dataset:N", "tpm_plot:Q", "density:Q"],
+                        )
+                        .properties(height=28 * len(tpm_order))
+                    )
+                    st.markdown("**TPM distribution (ridgeline)**")
+                    st.altair_chart(density, use_container_width=True)
         else:
             st.info("TPM distribution unavailable (no TPM columns found).")
 
