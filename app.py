@@ -562,11 +562,9 @@ st.markdown(
 
 # Load MCD data (in-house + external)
 inhouse_mcd_frames = {}
-inhouse_tpm_map = None
-if DATA_DIR is None:
-    inhouse_tpm_map = load_tpm_map_from_featurecounts(
-        ROOT / "RNA-seq" / "in-house_MCD_RNAseq" / "counts" / "featurecounts" / "gene_counts.txt"
-    )
+inhouse_tpm_map = load_tpm_map_from_featurecounts(
+    ROOT / "RNA-seq" / "in-house_MCD_RNAseq" / "counts" / "featurecounts" / "gene_counts.txt"
+)
 for label, path in get_inhouse_mcd_paths().items():
     if not path.exists():
         st.warning(f"Missing in-house MCD file: {path}")
@@ -576,16 +574,14 @@ for label, path in get_inhouse_mcd_paths().items():
     inhouse_mcd_frames[label] = df
 
 external_mcd_frames = {}
-external_tpm_maps: dict[str, dict[str, float] | None] = {}
-if DATA_DIR is None:
-    external_tpm_maps = {
-        "GSE156918 (external MCD)": load_tpm_map_from_featurecounts(
-            ROOT / "RNA-seq" / "other_MCD_RNAseq" / "GSE156918" / "counts" / "featurecounts" / "gene_counts.txt"
-        ),
-        "GSE205974 (external MCD)": load_tpm_map_from_featurecounts(
-            ROOT / "RNA-seq" / "other_MCD_RNAseq" / "GSE205974" / "counts" / "featurecounts" / "gene_counts.txt"
-        ),
-    }
+external_tpm_maps: dict[str, dict[str, float] | None] = {
+    "GSE156918 (external MCD)": load_tpm_map_from_featurecounts(
+        ROOT / "RNA-seq" / "other_MCD_RNAseq" / "GSE156918" / "counts" / "featurecounts" / "gene_counts.txt"
+    ),
+    "GSE205974 (external MCD)": load_tpm_map_from_featurecounts(
+        ROOT / "RNA-seq" / "other_MCD_RNAseq" / "GSE205974" / "counts" / "featurecounts" / "gene_counts.txt"
+    ),
+}
 for label, path in get_external_mcd_paths().items():
     if not path.exists():
         st.warning(f"Missing external MCD file: {path}")
@@ -596,24 +592,22 @@ for label, path in get_external_mcd_paths().items():
 
 # Load patient data for both datasets
 patient_data = {}
-patient_tpm_maps: dict[str, dict[str, float] | None] = {}
-if DATA_DIR is None:
-    gse130970_counts = ROOT / "RNA-seq" / "patient_RNAseq" / "results" / "GSE130970" / "counts"
-    gse135251_counts = ROOT / "RNA-seq" / "patient_RNAseq" / "results" / "GSE135251" / "counts"
-    gse130970_length_source = next(gse130970_counts.glob("individual/*_counts.txt"), None)
-    gse135251_length_source = next(gse135251_counts.glob("individual/*_counts.txt"), None)
-    patient_tpm_maps = {
-        "GSE130970": load_tpm_map_from_counts_matrix(
-            gse130970_counts / "gene_counts_matrix.txt", gse130970_length_source
-        )
-        if gse130970_length_source
-        else None,
-        "GSE135251": load_tpm_map_from_counts_matrix(
-            gse135251_counts / "gene_counts_matrix.txt", gse135251_length_source
-        )
-        if gse135251_length_source
-        else None,
-    }
+gse130970_counts = ROOT / "RNA-seq" / "patient_RNAseq" / "results" / "GSE130970" / "counts"
+gse135251_counts = ROOT / "RNA-seq" / "patient_RNAseq" / "results" / "GSE135251" / "counts"
+gse130970_length_source = next(gse130970_counts.glob("individual/*_counts.txt"), None)
+gse135251_length_source = next(gse135251_counts.glob("individual/*_counts.txt"), None)
+patient_tpm_maps: dict[str, dict[str, float] | None] = {
+    "GSE130970": load_tpm_map_from_counts_matrix(
+        gse130970_counts / "gene_counts_matrix.txt", gse130970_length_source
+    )
+    if gse130970_length_source
+    else None,
+    "GSE135251": load_tpm_map_from_counts_matrix(
+        gse135251_counts / "gene_counts_matrix.txt", gse135251_length_source
+    )
+    if gse135251_length_source
+    else None,
+}
 for dataset in PATIENT_DATASETS:
     paths = patient_paths(dataset)
     if paths is None:
