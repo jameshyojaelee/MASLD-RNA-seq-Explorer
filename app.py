@@ -1429,6 +1429,15 @@ if summary_rows:
             combo_counts, selected_sets, union_genes = build_combo_counts(dedup_sets, selected_labels)
             dedup_total = len(union_genes)
             st.metric("Total DEGs (deduplicated across mouse+human)", dedup_total)
+            if dedup_total:
+                dedup_df = pd.DataFrame({"gene_id": sorted(union_genes)})
+                csv_bytes = dedup_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "Download deduplicated genes (CSV)",
+                    data=csv_bytes,
+                    file_name="deduplicated_degs.csv",
+                    mime="text/csv",
+                )
             st.caption(
                 "Mouse genes are mapped to human Ensembl orthologs for cross-species de-duplication."
             )
