@@ -274,6 +274,30 @@ def build_mouse_to_human_map(df: pd.DataFrame, one2one_only: bool) -> dict[str, 
     return mapping
 
 
+def build_human_to_mouse_map(df: pd.DataFrame, one2one_only: bool) -> dict[str, set[str]]:
+    if one2one_only:
+        df = df[df["orthology_type"].str.contains("one2one", case=False, na=False)]
+    mapping: dict[str, set[str]] = {}
+    for row in df.itertuples(index=False):
+        mapping.setdefault(row.human_ensembl_gene_id, set()).add(row.mouse_ensembl_gene_id)
+    return mapping
+
+
+def mapped_counts(gene_set: set[str], mapping: dict[str, set[str]]) -> tuple[int, int, int]:
+    mapped = 0
+    unmapped = 0
+    targets: set[str] = set()
+    for gid in gene_set:
+        gid_norm = strip_version(gid)
+        mapped_to = mapping.get(gid_norm)
+        if mapped_to:
+            mapped += 1
+            targets.update(mapped_to)
+        else:
+            unmapped += 1
+    return mapped, unmapped, len(targets)
+
+
 @st.cache_data(show_spinner=False)
 def load_biotype_map(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path, sep="\t")
@@ -1417,6 +1441,7 @@ if summary_rows:
         include_unmapped = st.checkbox("Include unmapped mouse genes", value=True)
         ortholog_df = load_ortholog_map(ORTHOLOG_PATH)
         mouse_to_human = build_mouse_to_human_map(ortholog_df, one2one_only=use_one2one)
+        human_to_mouse = build_human_to_mouse_map(ortholog_df, one2one_only=use_one2one)
         for label, entry in summary_sets.items():
             species = entry["species"]
             genes = entry["genes"]
@@ -1438,49 +1463,79 @@ if summary_rows:
                     file_name="deduplicated_degs.csv",
                     mime="text/csv",
                 )
-            st.caption(
-                "Mouse genes are mapped to human Ensembl orthologs for cross-species de-duplication."
-            )
-            st.markdown("**DEG contribution breakdown**")
-            if dedup_total == 0:
-                st.info("No genes available for contribution breakdown at current cutoffs.")
-            else:
-                contrib_df = build_contribution_table(selected_sets, combo_counts, dedup_total)
-
-                # Enhance with cutoff info from summary_df
-                if not summary_df.empty:
-                    cutoff_map = summary_df.set_index("label")[["padj", "log2FC", "tpm"]].to_dict("index")
-                    contrib_df["padj"] = contrib_df["set"].map(lambda x: cutoff_map.get(x, {}).get("padj", "-"))
-                    contrib_df["log2FC"] = contrib_df["set"].map(lambda x: cutoff_map.get(x, {}).get("log2FC", "-"))
-                    contrib_df["tpm"] = contrib_df["set"].map(lambda x: cutoff_map.get(x, {}).get("tpm", "-"))
-
-                st.markdown("**Per-set contribution to the deduplicated union**")
-                render_table(contrib_df)
-
-                bar_df = contrib_df[["set", "unique_only", "shared_any"]].copy()
-                bar_df = bar_df.set_index("set")
-                st.markdown("**Unique vs shared contributions (stacked)**")
-                # Use Altair for themed stacked bar chart
-                bar_long = bar_df.reset_index().melt(id_vars="set", var_name="Type", value_name="Count")
-                try:
-                    import altair as alt
-                    chart = (
-                        alt.Chart(bar_long)
-                        .mark_bar()
-                        .encode(
-                            x=alt.X("Count", title="Number of Genes"),
-                            y=alt.Y("set", title="Set", sort="-x"),
-                            color=alt.Color(
-                                "Type",
-                                scale=alt.Scale(domain=["unique_only", "shared_any"], range=["#C23B75", "#F2A45E"]),
-                                legend=alt.Legend(title="Type"),
-                            ),
-                            tooltip=["set", "Type", "Count"],
-                        )
+                st.caption(
+                    "Mouse genes are mapped to human Ensembl orthologs for cross-species de-duplication."
+                )
+                # Cross-species mapping summary (bidirectional)
+                mapping_rows = []
+                for label in selected_sets:
+                    source_entry = summary_sets[label]
+                    genes = source_entry["genes"]
+                    species = source_entry["species"]
+                    if species == "mouse":
+                        mapped, unmapped, target_count = mapped_counts(genes, mouse_to_human)
+                        target_species = "human"
+                    else:
+                        mapped, unmapped, target_count = mapped_counts(genes, human_to_mouse)
+                        target_species = "mouse"
+                    total = mapped + unmapped
+                    mapping_rows.append(
+                        {
+                            "set": label,
+                            "from_species": species,
+                            "to_species": target_species,
+                            "input_genes": total,
+                            "mapped_genes": mapped,
+                            "unmapped_genes": unmapped,
+                            "mapped_%": (mapped / total) if total else 0.0,
+                            "unique_targets": target_count,
+                        }
                     )
-                    st.altair_chart(chart, use_container_width=True)
-                except Exception:
-                    st.bar_chart(bar_df, stack=True, width="stretch")
+                mapping_df = pd.DataFrame(mapping_rows)
+                if not mapping_df.empty:
+                    mapping_df["mapped_%"] = mapping_df["mapped_%"].map(lambda x: f"{x:.2%}")
+                    st.markdown("**Cross-species mapping summary**")
+                    render_table(mapping_df)
+                st.markdown("**DEG contribution breakdown**")
+                if dedup_total == 0:
+                    st.info("No genes available for contribution breakdown at current cutoffs.")
+                else:
+                    contrib_df = build_contribution_table(selected_sets, combo_counts, dedup_total)
+
+                    # Enhance with cutoff info from summary_df
+                    if not summary_df.empty:
+                        cutoff_map = summary_df.set_index("label")[["padj", "log2FC", "tpm"]].to_dict("index")
+                        contrib_df["padj"] = contrib_df["set"].map(lambda x: cutoff_map.get(x, {}).get("padj", "-"))
+                        contrib_df["log2FC"] = contrib_df["set"].map(lambda x: cutoff_map.get(x, {}).get("log2FC", "-"))
+                        contrib_df["tpm"] = contrib_df["set"].map(lambda x: cutoff_map.get(x, {}).get("tpm", "-"))
+
+                    st.markdown("**Per-set contribution to the deduplicated union**")
+                    render_table(contrib_df)
+
+                    bar_df = contrib_df[["set", "unique_only", "shared_any"]].copy()
+                    bar_df = bar_df.set_index("set")
+                    st.markdown("**Unique vs shared contributions (stacked)**")
+                    # Use Altair for themed stacked bar chart
+                    bar_long = bar_df.reset_index().melt(id_vars="set", var_name="Type", value_name="Count")
+                    try:
+                        import altair as alt
+                        chart = (
+                            alt.Chart(bar_long)
+                            .mark_bar()
+                            .encode(
+                                x=alt.X("Count", title="Number of Genes"),
+                                y=alt.Y("set", title="Set", sort="-x"),
+                                color=alt.Color(
+                                    "Type",
+                                    scale=alt.Scale(domain=["unique_only", "shared_any"], range=["#C23B75", "#F2A45E"]),
+                                    legend=alt.Legend(title="Type"),
+                                ),
+                                tooltip=["set", "Type", "Count"],
+                            )
+                        )
+                        st.altair_chart(chart, use_container_width=True)
+                    except Exception:
+                        st.bar_chart(bar_df, stack=True, width="stretch")
 
             if BIOTYPE_PATH is None:
                 st.info("Biotype map not found; biotype breakdown is unavailable.")
