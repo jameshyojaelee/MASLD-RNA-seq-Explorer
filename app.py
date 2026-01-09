@@ -1480,6 +1480,7 @@ if summary_rows:
     dedup_sets = {}
     if ORTHOLOG_PATH is not None:
         use_one2one = st.checkbox("Use one-to-one orthologs only", value=True)
+        include_unmapped_human = st.checkbox("Include unmapped human genes", value=True)
         include_unmapped = st.checkbox("Include unmapped mouse genes", value=True)
         ortholog_df = load_ortholog_map(ORTHOLOG_PATH)
         mouse_to_human = build_mouse_to_human_map(ortholog_df, one2one_only=use_one2one)
@@ -1488,7 +1489,15 @@ if summary_rows:
             species = entry["species"]
             genes = entry["genes"]
             if species == "human":
-                dedup_sets[label] = canonicalize_human_set(genes)
+                if include_unmapped_human:
+                    dedup_sets[label] = canonicalize_human_set(genes)
+                else:
+                    human_mapped = set()
+                    for gid in genes:
+                        gid_norm = strip_version(gid)
+                        if gid_norm in human_to_mouse:
+                            human_mapped.add(gid_norm)
+                    dedup_sets[label] = canonicalize_human_set(human_mapped)
             else:
                 dedup_sets[label] = canonicalize_mouse_set(genes, mouse_to_human, include_unmapped)
         if dedup_sets and active_labels:
