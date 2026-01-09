@@ -2,6 +2,7 @@
 
 Streamlit app to explore **upregulated** DEG counts across in-house MCD (mouse) and
 public GEO patient datasets (GSE130970, GSE135251).
+Includes an optional **TPM cutoff** (mean TPM per dataset) when TPM columns are present.
 
 ## Live app (Streamlit Community Cloud)
 This URL should remain stable as long as the app name/workspace are unchanged:
@@ -17,6 +18,7 @@ streamlit run app.py
 ## Data
 Bundled DEG tables live in `data/` (compressed), plus a mouse→human ortholog map
 used for cross-species de-duplication. A manifest is in `data/manifest.tsv`.
+Bundled tables may include a `tpm_mean` column (mean TPM across all samples in each dataset).
 
 To rebuild the manifest:
 ```

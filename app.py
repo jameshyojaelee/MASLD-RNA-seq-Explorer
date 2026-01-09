@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Iterable
+import math
 
 import pandas as pd
 import streamlit as st
@@ -145,11 +146,18 @@ def normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     gene_col = cols.get("gene") or cols.get("gene_id")
     lfc_col = cols.get("log2foldchange")
     padj_col = cols.get("padj")
+    tpm_col = cols.get("tpm_mean") or cols.get("tpm")
     if gene_col is None or lfc_col is None or padj_col is None:
         missing = [k for k, v in {"gene": gene_col, "log2FoldChange": lfc_col, "padj": padj_col}.items() if v is None]
         raise ValueError(f"Missing required columns: {', '.join(missing)}")
-    df = df.rename(columns={gene_col: "gene_id", lfc_col: "log2FoldChange", padj_col: "padj"})
-    df = df[["gene_id", "log2FoldChange", "padj"]]
+    rename_map = {gene_col: "gene_id", lfc_col: "log2FoldChange", padj_col: "padj"}
+    if tpm_col is not None:
+        rename_map[tpm_col] = "tpm_mean"
+    df = df.rename(columns=rename_map)
+    keep_cols = ["gene_id", "log2FoldChange", "padj"]
+    if "tpm_mean" in df.columns:
+        keep_cols.append("tpm_mean")
+    df = df[keep_cols]
     df = df.dropna(subset=["log2FoldChange", "padj", "gene_id"])
     return df
 
@@ -233,8 +241,20 @@ def canonicalize_mouse_set(
     return canonical
 
 
-def upregulated_set(df: pd.DataFrame, padj_cutoff: float, log2fc_cutoff: float) -> set[str]:
+def tpm_mask(df: pd.DataFrame, tpm_cutoff: float) -> pd.Series:
+    if tpm_cutoff <= 0 or "tpm_mean" not in df.columns:
+        return pd.Series(True, index=df.index)
+    return df["tpm_mean"] >= tpm_cutoff
+
+
+def upregulated_set(
+    df: pd.DataFrame,
+    padj_cutoff: float,
+    log2fc_cutoff: float,
+    tpm_cutoff: float,
+) -> set[str]:
     mask = (df["padj"] < padj_cutoff) & (df["log2FoldChange"] > log2fc_cutoff)
+    mask &= tpm_mask(df, tpm_cutoff)
     return set(df.loc[mask, "gene_id"].astype(str))
 
 
@@ -262,9 +282,11 @@ def top_right_set(
     other_df: pd.DataFrame,
     nas_log2fc_cutoff: float,
     padj_cutoff: float,
+    tpm_cutoff: float,
 ) -> set[str]:
     nas_mask = (nas_df["padj"] < padj_cutoff) & (nas_df["log2FoldChange"] > nas_log2fc_cutoff)
-    other_mask = other_df["padj"] < padj_cutoff
+    nas_mask &= tpm_mask(nas_df, tpm_cutoff)
+    other_mask = (other_df["padj"] < padj_cutoff) & tpm_mask(other_df, tpm_cutoff)
     nas_set = set(nas_df.loc[nas_mask, "gene_id"].astype(str))
     other_set = set(other_df.loc[other_mask, "gene_id"].astype(str))
     return nas_set & other_set
@@ -275,8 +297,11 @@ def cross_dataset_top_right_set(
     df_b: pd.DataFrame,
     padj_cutoff: float,
     log2fc_cutoff: float,
+    tpm_cutoff: float,
 ) -> set[str]:
-    return upregulated_set(df_a, padj_cutoff, log2fc_cutoff) & upregulated_set(df_b, padj_cutoff, log2fc_cutoff)
+    return upregulated_set(df_a, padj_cutoff, log2fc_cutoff, tpm_cutoff) & upregulated_set(
+        df_b, padj_cutoff, log2fc_cutoff, tpm_cutoff
+    )
 
 
 def top_right_count(
@@ -284,8 +309,9 @@ def top_right_count(
     other_df: pd.DataFrame,
     nas_log2fc_cutoff: float,
     padj_cutoff: float,
+    tpm_cutoff: float,
 ) -> int:
-    return len(top_right_set(nas_df, other_df, nas_log2fc_cutoff, padj_cutoff))
+    return len(top_right_set(nas_df, other_df, nas_log2fc_cutoff, padj_cutoff, tpm_cutoff))
 
 
 def build_combo_counts(
@@ -410,7 +436,7 @@ def make_label(group: str, dataset: str, analysis: str) -> str:
 
 def render_table(df: pd.DataFrame) -> None:
     df_display = df.copy()
-    for col in ("padj", "log2FC"):
+    for col in ("padj", "log2FC", "tpm"):
         if col in df_display.columns:
             df_display[col] = df_display[col].astype(str)
     st.dataframe(df_display, hide_index=True, width="stretch")
@@ -432,6 +458,13 @@ def get_topright_padj(key: str, default_padj: float) -> float:
     return st.session_state.get(f"{key}_top_padj", default_padj)
 
 
+def get_tpm_cutoff(key: str, default_tpm: float) -> float:
+    use_override = st.session_state.get(f"{key}_override", False)
+    if not use_override:
+        return default_tpm
+    return st.session_state.get(f"{key}_tpm", default_tpm)
+
+
 st.set_page_config(page_title="MASLD RNA-seq DEG Explorer", layout="wide")
 
 st.title("MASLD RNA-seq DEG Explorer")
@@ -442,6 +475,7 @@ st.markdown(
 - **Mouse (external MCD GEO)**: **GSE156918** and **GSE205974** Control vs MCD contrasts.
 - **Patient (human)**: GEO datasets **GSE130970** and **GSE135251** (NAFLD/NASH/MASLD cohorts).
 - This app reports **upregulated DEGs only** (log2FC > cutoff) and lets you adjust padj/log2FC cutoffs globally or per-dataset.
+- TPM filtering uses **mean TPM across all samples within each dataset** (if available).
 - **Patient (cross-dataset)**: top-right quadrant overlaps using the global padj/log2FC cutoffs.
 
 **Citations / datasets**: GEO **GSE156918**, **GSE205974**, **GSE130970**, **GSE135251**, and in-house MCD RNA-seq (week 1–3 diet contrasts).
@@ -480,6 +514,27 @@ for dataset in PATIENT_DATASETS:
         "nas_low": load_patient_csv(paths["nas_low"]),
         "fibrosis": load_patient_csv(paths["fibrosis"]),
     }
+
+# ===== TPM slider bounds =====
+def gather_tpm_max() -> float:
+    candidates = []
+    for df in list(inhouse_mcd_frames.values()) + list(external_mcd_frames.values()):
+        if "tpm_mean" in df.columns:
+            candidates.append(df["tpm_mean"].max())
+    for info in patient_data.values():
+        if info.get("error") or info.get("paths") is None:
+            continue
+        for key in ("nas_high", "nas_low", "fibrosis"):
+            df = info.get(key)
+            if isinstance(df, pd.DataFrame) and "tpm_mean" in df.columns:
+                candidates.append(df["tpm_mean"].max())
+    candidates = [v for v in candidates if pd.notna(v)]
+    if not candidates:
+        return 100.0
+    tpm_max = max(candidates)
+    return max(10.0, min(1000.0, math.ceil(tpm_max / 10.0) * 10.0))
+
+tpm_slider_max = gather_tpm_max()
 
 # ===== Selection UI =====
 st.info("Select the analyses to include in the findings.")
@@ -560,11 +615,37 @@ with col_human:
 # ===== Global Sliders =====
 padj_cutoff = st.slider("Global padj cutoff (MCD + NAS high)", 0.0, 0.2, 0.1, 0.005)
 log2fc_cutoff = st.slider("Global log2FC cutoff (upregulated only)", 0.0, 5.0, 0.0, 0.1)
+tpm_cutoff = st.slider("Global TPM cutoff (mean TPM per dataset)", 0.0, float(tpm_slider_max), 0.0, 0.1)
 
 st.caption(
     "Within-dataset top-right uses a dataset-specific padj cutoff (defaults to the global padj unless overridden), "
-    "and log2FC cutoff applies only to NAS high. Cross-dataset top-right uses the global padj/log2FC cutoffs."
+    "and log2FC cutoff applies only to NAS high. Cross-dataset top-right uses the global padj/log2FC cutoffs. "
+    "TPM cutoff is applied to all sets where TPM data is available."
 )
+
+missing_tpm = []
+for label, df in inhouse_mcd_frames.items():
+    key = f"inhouse_mcd_{slugify(label)}"
+    tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
+    if tpm_eff > 0 and "tpm_mean" not in df.columns:
+        missing_tpm.append(label)
+for label, df in external_mcd_frames.items():
+    key = f"external_mcd_{slugify(label)}"
+    tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
+    if tpm_eff > 0 and "tpm_mean" not in df.columns:
+        missing_tpm.append(label)
+for dataset, info in patient_data.items():
+    if info.get("error") or info.get("paths") is None:
+        continue
+    key = f"patient_{slugify(dataset)}"
+    tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
+    if tpm_eff > 0 and "tpm_mean" not in info["nas_high"].columns:
+        missing_tpm.append(dataset)
+if missing_tpm:
+    st.warning(
+        "TPM cutoff is enabled but TPM data is missing for: "
+        + ", ".join(sorted(set(missing_tpm)))
+    )
 
 # ===== Dataset specific overrides =====
 with st.expander("Dataset-specific overrides (Advanced)"):
@@ -574,7 +655,7 @@ with st.expander("Dataset-specific overrides (Advanced)"):
         st.markdown("#### MCD (In-house)")
         for label in inhouse_mcd_frames:
             key = f"inhouse_mcd_{slugify(label)}"
-            c1, c2, c3 = st.columns([2, 2, 2])
+            c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
             with c1:
                 use_override = st.checkbox(f"{label}", key=f"{key}_override")
             if use_override:
@@ -582,12 +663,14 @@ with st.expander("Dataset-specific overrides (Advanced)"):
                     st.number_input(f"padj", 0.0, 1.0, padj_cutoff, 0.005, key=f"{key}_padj")
                 with c3:
                     st.number_input(f"log2FC", 0.0, 10.0, log2fc_cutoff, 0.1, key=f"{key}_lfc")
+                with c4:
+                    st.number_input(f"TPM", 0.0, float(tpm_slider_max), tpm_cutoff, 0.1, key=f"{key}_tpm")
 
     if external_mcd_frames:
         st.markdown("#### MCD (External)")
         for label in external_mcd_frames:
             key = f"external_mcd_{slugify(label)}"
-            c1, c2, c3 = st.columns([2, 2, 2])
+            c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
             with c1:
                 use_override = st.checkbox(f"{label}", key=f"{key}_override")
             if use_override:
@@ -595,6 +678,8 @@ with st.expander("Dataset-specific overrides (Advanced)"):
                     st.number_input(f"padj", 0.0, 1.0, padj_cutoff, 0.005, key=f"{key}_padj")
                 with c3:
                     st.number_input(f"log2FC", 0.0, 10.0, log2fc_cutoff, 0.1, key=f"{key}_lfc")
+                with c4:
+                    st.number_input(f"TPM", 0.0, float(tpm_slider_max), tpm_cutoff, 0.1, key=f"{key}_tpm")
 
     if patient_data:
         st.markdown("#### Patient Datasets")
@@ -602,7 +687,7 @@ with st.expander("Dataset-specific overrides (Advanced)"):
             if info.get("error") or info.get("paths") is None:
                 continue
             key = f"patient_{slugify(dataset)}"
-            c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
+            c1, c2, c3, c4, c5 = st.columns([2, 2, 2, 2, 2])
             with c1:
                 use_override = st.checkbox(f"{dataset}", key=f"{key}_override")
             if use_override:
@@ -612,10 +697,12 @@ with st.expander("Dataset-specific overrides (Advanced)"):
                     st.number_input(f"NAS high log2FC", 0.0, 10.0, log2fc_cutoff, 0.1, key=f"{key}_lfc")
                 with c4:
                     st.number_input(f"Top-right global padj", 0.0, 1.0, 0.1, 0.005, key=f"{key}_top_padj")
+                with c5:
+                    st.number_input(f"TPM", 0.0, float(tpm_slider_max), tpm_cutoff, 0.1, key=f"{key}_tpm")
 
     st.markdown("#### Patient (Cross-dataset)")
     key = "patient_cross_dataset"
-    c1, c2, c3 = st.columns([2, 2, 2])
+    c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
     with c1:
         use_override = st.checkbox(f"Cross-dataset pair", key=f"{key}_override")
     if use_override:
@@ -623,6 +710,8 @@ with st.expander("Dataset-specific overrides (Advanced)"):
             st.number_input(f"padj", 0.0, 1.0, padj_cutoff, 0.005, key=f"{key}_padj")
         with c3:
             st.number_input(f"log2FC", 0.0, 10.0, log2fc_cutoff, 0.1, key=f"{key}_lfc")
+        with c4:
+            st.number_input(f"TPM", 0.0, float(tpm_slider_max), tpm_cutoff, 0.1, key=f"{key}_tpm")
 
 # ===== Top summary =====
 st.subheader("Overall summary")
@@ -638,7 +727,8 @@ inhouse_mcd_week_sets = []
 for label, df in inhouse_mcd_frames.items():
     key = f"inhouse_mcd_{slugify(label)}"
     padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
-    gene_set = upregulated_set(df, padj_eff, lfc_eff)
+    tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
+    gene_set = upregulated_set(df, padj_eff, lfc_eff, tpm_eff)
     if label in INHOUSE_MCD_WEEK_LABELS:
         inhouse_mcd_week_sets.append(gene_set)
     summary_rows.append(
@@ -648,6 +738,7 @@ for label, df in inhouse_mcd_frames.items():
             "analysis": label,
             "padj": padj_eff,
             "log2FC": lfc_eff,
+            "tpm": tpm_eff if "tpm_mean" in df.columns else "missing",
             "count": len(gene_set),
         }
     )
@@ -662,6 +753,7 @@ if inhouse_mcd_week_sets:
             "analysis": "MCD Week1/2/3 Intersection",
             "padj": "varies",
             "log2FC": "varies",
+            "tpm": "varies",
             "count": len(mcd_intersection),
         }
     )
@@ -673,7 +765,8 @@ if inhouse_mcd_week_sets:
 for label, df in external_mcd_frames.items():
     key = f"external_mcd_{slugify(label)}"
     padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
-    gene_set = upregulated_set(df, padj_eff, lfc_eff)
+    tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
+    gene_set = upregulated_set(df, padj_eff, lfc_eff, tpm_eff)
     summary_rows.append(
         {
             "group": "MCD (external)",
@@ -681,6 +774,7 @@ for label, df in external_mcd_frames.items():
             "analysis": label,
             "padj": padj_eff,
             "log2FC": lfc_eff,
+            "tpm": tpm_eff if "tpm_mean" in df.columns else "missing",
             "count": len(gene_set),
         }
     )
@@ -695,6 +789,7 @@ for dataset, info in patient_data.items():
                 "analysis": "No data",
                 "padj": "-",
                 "log2FC": "-",
+                "tpm": "-",
                 "count": 0,
             }
         )
@@ -707,6 +802,7 @@ for dataset, info in patient_data.items():
                 "analysis": info["error"],
                 "padj": "-",
                 "log2FC": "-",
+                "tpm": "-",
                 "count": 0,
             }
         )
@@ -715,14 +811,19 @@ for dataset, info in patient_data.items():
     key = f"patient_{slugify(dataset)}"
     nas_padj, nas_lfc = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
     top_padj = get_topright_padj(key, default_padj=padj_cutoff)
+    tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
 
     nas_high_df = info["nas_high"]
     nas_low_df = info["nas_low"]
     fibrosis_df = info["fibrosis"]
 
-    nas_high_set = upregulated_set(nas_high_df, nas_padj, nas_lfc)
-    nas_high_vs_fibrosis_set = top_right_set(nas_high_df, fibrosis_df, nas_lfc, padj_cutoff=top_padj)
-    nas_high_vs_nas_low_set = top_right_set(nas_high_df, nas_low_df, nas_lfc, padj_cutoff=top_padj)
+    nas_high_set = upregulated_set(nas_high_df, nas_padj, nas_lfc, tpm_eff)
+    nas_high_vs_fibrosis_set = top_right_set(
+        nas_high_df, fibrosis_df, nas_lfc, padj_cutoff=top_padj, tpm_cutoff=tpm_eff
+    )
+    nas_high_vs_nas_low_set = top_right_set(
+        nas_high_df, nas_low_df, nas_lfc, padj_cutoff=top_padj, tpm_cutoff=tpm_eff
+    )
 
     summary_rows.append(
         {
@@ -731,6 +832,7 @@ for dataset, info in patient_data.items():
             "analysis": "NAS high (upregulated)",
             "padj": nas_padj,
             "log2FC": nas_lfc,
+            "tpm": tpm_eff if "tpm_mean" in nas_high_df.columns else "missing",
             "count": len(nas_high_set),
         }
     )
@@ -745,6 +847,7 @@ for dataset, info in patient_data.items():
             "analysis": "NAS high vs Fibrosis (top-right)",
             "padj": top_padj,
             "log2FC": nas_lfc,
+            "tpm": tpm_eff if "tpm_mean" in nas_high_df.columns else "missing",
             "count": len(nas_high_vs_fibrosis_set),
         }
     )
@@ -759,6 +862,7 @@ for dataset, info in patient_data.items():
             "analysis": "NAS high vs NAS low (top-right)",
             "padj": top_padj,
             "log2FC": nas_lfc,
+            "tpm": tpm_eff if "tpm_mean" in nas_high_df.columns else "missing",
             "count": len(nas_high_vs_nas_low_set),
         }
     )
@@ -779,8 +883,9 @@ if info_a and info_b and not info_a.get("error") and not info_b.get("error") and
         
         key = "patient_cross_dataset"
         padj_cd, lfc_cd = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
+        tpm_cd = get_tpm_cutoff(key, tpm_cutoff)
         
-        cross_set = cross_dataset_top_right_set(df_a, df_b, padj_cd, lfc_cd)
+        cross_set = cross_dataset_top_right_set(df_a, df_b, padj_cd, lfc_cd, tpm_cd)
         cross_dataset_rows.append(
             {
                 "group": "Patient (cross-dataset)",
@@ -788,6 +893,7 @@ if info_a and info_b and not info_a.get("error") and not info_b.get("error") and
                 "analysis": f"{comp_label} (top-right)",
                 "padj": padj_cd,
                 "log2FC": f">{lfc_cd}",
+                "tpm": tpm_cd if "tpm_mean" in df_a.columns else "missing",
                 "count": len(cross_set),
             }
         )
@@ -844,9 +950,10 @@ if summary_rows:
 
                 # Enhance with cutoff info from summary_df
                 if not summary_df.empty:
-                    cutoff_map = summary_df.set_index("label")[["padj", "log2FC"]].to_dict("index")
+                    cutoff_map = summary_df.set_index("label")[["padj", "log2FC", "tpm"]].to_dict("index")
                     contrib_df["padj"] = contrib_df["set"].map(lambda x: cutoff_map.get(x, {}).get("padj", "-"))
                     contrib_df["log2FC"] = contrib_df["set"].map(lambda x: cutoff_map.get(x, {}).get("log2FC", "-"))
+                    contrib_df["tpm"] = contrib_df["set"].map(lambda x: cutoff_map.get(x, {}).get("tpm", "-"))
 
                 st.markdown("**Per-set contribution to the deduplicated union**")
                 render_table(contrib_df)
@@ -929,7 +1036,7 @@ with st.expander("Sanity check (padj=0.1, log2FC=0)"):
     mcd_counts_sc = []
     inhouse_sets_sc = []
     for label, df in inhouse_mcd_frames.items():
-        gene_set = upregulated_set(df, 0.1, 0.0)
+        gene_set = upregulated_set(df, 0.1, 0.0, tpm_cutoff)
         inhouse_sets_sc.append(gene_set)
         mcd_counts_sc.append({"analysis": f"{label} (in-house)", "count": len(gene_set)})
     if inhouse_sets_sc:
@@ -937,7 +1044,7 @@ with st.expander("Sanity check (padj=0.1, log2FC=0)"):
             {"analysis": "MCD Week1/2/3 Intersection (in-house)", "count": intersection_count_from_sets(inhouse_sets_sc)}
         )
     for label, df in external_mcd_frames.items():
-        gene_set = upregulated_set(df, 0.1, 0.0)
+        gene_set = upregulated_set(df, 0.1, 0.0, tpm_cutoff)
         mcd_counts_sc.append({"analysis": f"{label} (external)", "count": len(gene_set)})
     if mcd_counts_sc:
         render_table(pd.DataFrame(mcd_counts_sc))
@@ -954,15 +1061,15 @@ with st.expander("Sanity check (padj=0.1, log2FC=0)"):
             [
                 {
                     "analysis": "NAS high (upregulated)",
-                    "count": len(upregulated_set(nas_high_df, 0.1, 0.0)),
+                    "count": len(upregulated_set(nas_high_df, 0.1, 0.0, tpm_cutoff)),
                 },
                 {
                     "analysis": "NAS high vs Fibrosis (top-right)",
-                    "count": top_right_count(nas_high_df, fibrosis_df, 0.0, padj_cutoff=0.1),
+                    "count": top_right_count(nas_high_df, fibrosis_df, 0.0, padj_cutoff=0.1, tpm_cutoff=tpm_cutoff),
                 },
                 {
                     "analysis": "NAS high vs NAS low (top-right)",
-                    "count": top_right_count(nas_high_df, nas_low_df, 0.0, padj_cutoff=0.1),
+                    "count": top_right_count(nas_high_df, nas_low_df, 0.0, padj_cutoff=0.1, tpm_cutoff=tpm_cutoff),
                 },
             ]
         )

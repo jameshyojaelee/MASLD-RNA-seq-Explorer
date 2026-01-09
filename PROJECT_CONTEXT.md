@@ -4,6 +4,7 @@
 - Streamlit app to interactively count **upregulated** DEGs for MASLD-related RNA-seq.
 - Covers in-house mouse MCD diet RNA-seq (week1/2/3) and public GEO patient datasets (GSE130970, GSE135251).
 - Supports adjustable padj/log2FC cutoffs per dataset and global defaults.
+- Supports a global TPM cutoff (mean TPM per dataset) applied to all sets when available.
 - Provides overall summary, de-dup totals across mouse+human via ortholog mapping, and overlap visualization (UpSet).
 
 ## Key definitions
@@ -25,6 +26,7 @@
 - data/mcd_week2.tsv.gz
 - data/mcd_week3.tsv.gz
 Columns: gene_id, log2FoldChange, padj
+Optional column: tpm_mean (mean TPM across all samples in the dataset)
 
 ### Human (GEO)
 - data/gse130970_nas_high.csv.gz
@@ -34,6 +36,7 @@ Columns: gene_id, log2FoldChange, padj
 - data/gse135251_nas_low.csv.gz
 - data/gse135251_fibrosis.csv.gz
 Columns: gene_id, log2FoldChange, padj
+Optional column: tpm_mean (mean TPM across all samples in the dataset)
 
 ### Ortholog map (mouse->human)
 - data/mouse_human_orthologs.tsv.gz
