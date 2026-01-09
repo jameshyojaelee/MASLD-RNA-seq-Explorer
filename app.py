@@ -1092,6 +1092,7 @@ with st.expander("Distributions", expanded=False):
                     st.info("TPM distribution unavailable (insufficient data).")
                 else:
                     ridge_df = pd.DataFrame(ridge_rows)
+                    ridge_height = max(280, 28 * len(tpm_order))
                     density = (
                         alt.Chart(ridge_df)
                         .mark_area(interpolate="monotone", fillOpacity=0.6, stroke="white", strokeWidth=0.5)
@@ -1105,7 +1106,7 @@ with st.expander("Distributions", expanded=False):
                             ),
                             tooltip=["dataset:N", "tpm_plot:Q", "density:Q"],
                         )
-                        .properties(height=28 * len(tpm_order))
+                        .properties(height=ridge_height)
                     )
                     st.markdown("**TPM distribution (ridgeline)**")
                     st.altair_chart(density, use_container_width=True)
@@ -1165,6 +1166,7 @@ with st.expander("Distributions", expanded=False):
 
         if log_rows:
             log_df = pd.DataFrame(log_rows)
+            log_height = max(280, 18 * len(log_order))
             log_chart = (
                 alt.Chart(log_df)
                 .mark_boxplot(size=12, extent="min-max")
@@ -1174,7 +1176,7 @@ with st.expander("Distributions", expanded=False):
                     color=alt.Color("group:N", legend=alt.Legend(title="Group")),
                     tooltip=["analysis:N", "log2FC:Q"],
                 )
-                .properties(height=18 * len(log_order))
+                .properties(height=log_height)
             )
             st.markdown("**Log2FC distribution (box/violin grid)**")
             st.altair_chart(log_chart, use_container_width=True)
