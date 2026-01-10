@@ -26,6 +26,7 @@
 - data/mcd_week3.tsv.gz
 Columns: gene_id, log2FoldChange, padj
 Optional column: tpm_mean (mean TPM across all samples in the dataset)
+Optional column: gene_symbol
 
 ### Human (GEO)
 - data/gse130970_nas_high.csv.gz
@@ -36,6 +37,7 @@ Optional column: tpm_mean (mean TPM across all samples in the dataset)
 - data/gse135251_fibrosis.csv.gz
 Columns: gene_id, log2FoldChange, padj
 Optional column: tpm_mean (mean TPM across all samples in the dataset)
+Optional column: gene_symbol
 
 ### Ortholog map (mouse->human)
 - data/mouse_human_orthologs.tsv.gz

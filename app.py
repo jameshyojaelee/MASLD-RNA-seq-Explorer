@@ -1537,6 +1537,10 @@ if summary_rows:
                 mouse_symbol_map = load_mouse_symbol_map(
                     ROOT / "RNA-seq" / "in-house_MCD_RNAseq" / "reference" / "indices" / "star" / "geneInfo.tab"
                 )
+                gene_to_sets: dict[str, list[str]] = {}
+                for label, genes in selected_sets.items():
+                    for gid in genes:
+                        gene_to_sets.setdefault(gid, []).append(label)
                 rows = []
                 for gid in sorted(union_genes):
                     if gid.startswith("MOUSE:"):
@@ -1547,7 +1551,16 @@ if summary_rows:
                         raw_id = gid
                         species = "human"
                         symbol = human_symbol_map.get(strip_version(raw_id), "")
-                    rows.append({"gene_id": gid, "species": species, "gene_symbol": symbol})
+                    analyses = gene_to_sets.get(gid, [])
+                    rows.append(
+                        {
+                            "gene_id": gid,
+                            "species": species,
+                            "gene_symbol": symbol,
+                            "overlap_count": len(analyses),
+                            "analyses": "; ".join(analyses),
+                        }
+                    )
                 dedup_df = pd.DataFrame(rows)
                 csv_bytes = dedup_df.to_csv(index=False).encode("utf-8")
                 st.download_button(
