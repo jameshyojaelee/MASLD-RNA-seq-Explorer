@@ -1534,6 +1534,20 @@ if summary_rows:
             st.metric("Total DEGs (deduplicated across mouse+human)", dedup_total)
             if dedup_total:
                 human_symbol_map, mouse_symbol_map = load_symbol_maps_from_bundled(DATA_DIR)
+                human_biotype_map = {}
+                mouse_biotype_map = {}
+                if BIOTYPE_PATH is not None and BIOTYPE_PATH.exists():
+                    biotype_df = load_biotype_map(BIOTYPE_PATH)
+                    human_biotype_map = (
+                        biotype_df[biotype_df["species"] == "human"]
+                        .set_index("ensembl_gene_id")["gene_biotype"]
+                        .to_dict()
+                    )
+                    mouse_biotype_map = (
+                        biotype_df[biotype_df["species"] == "mouse"]
+                        .set_index("ensembl_gene_id")["gene_biotype"]
+                        .to_dict()
+                    )
                 gene_to_sets: dict[str, list[str]] = {}
                 for label, genes in selected_sets.items():
                     for gid in genes:
@@ -1544,21 +1558,27 @@ if summary_rows:
                         raw_id = gid.split("MOUSE:", 1)[1]
                         species = "mouse"
                         symbol = mouse_symbol_map.get(strip_version(raw_id), "")
+                        biotype = mouse_biotype_map.get(strip_version(raw_id), "")
                     else:
                         raw_id = gid
                         species = "human"
                         symbol = human_symbol_map.get(strip_version(raw_id), "")
+                        biotype = human_biotype_map.get(strip_version(raw_id), "")
                     analyses = gene_to_sets.get(gid, [])
                     rows.append(
                         {
-                            "gene_id": gid,
                             "species": species,
+                            "gene_id": gid,
                             "gene_symbol": symbol,
+                            "biotype": biotype,
                             "overlap_count": len(analyses),
                             "analyses": "; ".join(analyses),
                         }
                     )
                 dedup_df = pd.DataFrame(rows)
+                dedup_df = dedup_df[
+                    ["species", "gene_id", "gene_symbol", "biotype", "overlap_count", "analyses"]
+                ]
                 csv_bytes = dedup_df.to_csv(index=False).encode("utf-8")
                 st.download_button(
                     "Download deduplicated genes (CSV)",
