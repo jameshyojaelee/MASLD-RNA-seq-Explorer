@@ -206,6 +206,27 @@ def load_mouse_symbol_map(path: Path) -> dict[str, str]:
     return symbol_map
 
 
+@st.cache_data(show_spinner=False)
+def load_symbol_maps_from_bundled(data_dir: Path) -> tuple[dict[str, str], dict[str, str]]:
+    human_map: dict[str, str] = {}
+    mouse_map: dict[str, str] = {}
+    for path in data_dir.glob("*.gz"):
+        sep = "\t" if path.name.endswith(".tsv.gz") else ","
+        try:
+            df = pd.read_csv(path, sep=sep, usecols=["gene_id", "gene_symbol"])
+        except Exception:
+            continue
+        for gid, symbol in zip(df["gene_id"].astype(str), df["gene_symbol"].astype(str)):
+            if not symbol:
+                continue
+            gid_norm = strip_version(gid)
+            if gid_norm.startswith("ENSG"):
+                human_map.setdefault(gid_norm, symbol)
+            elif gid_norm.startswith("ENSMUSG"):
+                mouse_map.setdefault(gid_norm, symbol)
+    return human_map, mouse_map
+
+
 def add_tpm_from_map(df: pd.DataFrame, tpm_map: dict[str, float] | None) -> pd.DataFrame:
     if not tpm_map or "tpm_mean" in df.columns:
         return df
@@ -1512,31 +1533,7 @@ if summary_rows:
             dedup_total = len(union_genes)
             st.metric("Total DEGs (deduplicated across mouse+human)", dedup_total)
             if dedup_total:
-                human_symbol_map = load_human_symbol_map(
-                    [
-                        ROOT
-                        / "RNA-seq"
-                        / "patient_RNAseq"
-                        / "results"
-                        / "GSE130970"
-                        / "edgeR_results"
-                        / "edgeR_optimized_20250622_073427"
-                        / "results"
-                        / "gene_annotations.csv",
-                        ROOT
-                        / "RNA-seq"
-                        / "patient_RNAseq"
-                        / "results"
-                        / "GSE135251"
-                        / "edgeR_results"
-                        / "edgeR_with_gene_names_20250621_171101"
-                        / "results"
-                        / "gene_annotations.csv",
-                    ]
-                )
-                mouse_symbol_map = load_mouse_symbol_map(
-                    ROOT / "RNA-seq" / "in-house_MCD_RNAseq" / "reference" / "indices" / "star" / "geneInfo.tab"
-                )
+                human_symbol_map, mouse_symbol_map = load_symbol_maps_from_bundled(DATA_DIR)
                 gene_to_sets: dict[str, list[str]] = {}
                 for label, genes in selected_sets.items():
                     for gid in genes:
