@@ -1110,176 +1110,6 @@ with st.expander("Dataset-specific overrides (Advanced)"):
         with c4:
             st.number_input(f"TPM", 0.0, float(tpm_slider_max), tpm_cutoff, 0.1, key=f"{key}_tpm")
 
-# ===== Distributions =====
-with st.expander("Distributions", expanded=False):
-    try:
-        import altair as alt
-    except Exception:
-        st.info("Altair not available for distribution plots.")
-    else:
-        # TPM ridgeline (per dataset)
-        tpm_view = st.radio(
-            "TPM view",
-            ["Log10(TPM + 1)", "Linear (p99 clipped)"],
-            index=0,
-            horizontal=True,
-            key="tpm_ridge_view",
-        )
-        tpm_rows = []
-        tpm_order = []
-        # In-house MCD (single dataset)
-        if inhouse_mcd_frames:
-            label = "MCD (in-house)"
-            df = next(iter(inhouse_mcd_frames.values()))
-            if "tpm_mean" in df.columns:
-                tpm_rows.extend(
-                    {"dataset": label, "tpm": float(val)} for val in df["tpm_mean"].dropna().values
-                )
-                tpm_order.append(label)
-        # External MCD (GSEs)
-        for label, df in external_mcd_frames.items():
-            short = label.split(" ")[0]
-            if "tpm_mean" in df.columns:
-                tpm_rows.extend(
-                    {"dataset": short, "tpm": float(val)} for val in df["tpm_mean"].dropna().values
-                )
-                tpm_order.append(short)
-        # Patient datasets (use NAS high table as representative)
-        for dataset, info in patient_data.items():
-            if info.get("error") or info.get("paths") is None:
-                continue
-            df = info["nas_high"]
-            if "tpm_mean" in df.columns:
-                tpm_rows.extend(
-                    {"dataset": dataset, "tpm": float(val)} for val in df["tpm_mean"].dropna().values
-                )
-                tpm_order.append(dataset)
-
-        if tpm_rows:
-            tpm_df = pd.DataFrame(tpm_rows)
-            if tpm_view == "Log10(TPM + 1)":
-                tpm_df["tpm_plot"] = np.log10(tpm_df["tpm"] + 1.0)
-                x_title = "log10(TPM + 1)"
-            else:
-                p99 = tpm_df["tpm"].quantile(0.99)
-                tpm_df["tpm_plot"] = tpm_df["tpm"].clip(upper=p99)
-                x_title = "TPM (clipped at p99)"
-            min_val = tpm_df["tpm_plot"].min()
-            max_val = tpm_df["tpm_plot"].max()
-            if pd.isna(min_val) or pd.isna(max_val) or min_val == max_val:
-                st.info("TPM distribution unavailable (insufficient variation).")
-            else:
-                bins = np.linspace(min_val, max_val, 80)
-                ridge_rows = []
-                for dataset in tpm_order:
-                    vals = tpm_df.loc[tpm_df["dataset"] == dataset, "tpm_plot"].dropna().values
-                    if vals.size < 2:
-                        continue
-                    hist, edges = np.histogram(vals, bins=bins, density=True)
-                    centers = (edges[:-1] + edges[1:]) / 2.0
-                    ridge_rows.extend(
-                        {"dataset": dataset, "tpm_plot": float(c), "density": float(d)}
-                        for c, d in zip(centers, hist)
-                    )
-                if not ridge_rows:
-                    st.info("TPM distribution unavailable (insufficient data).")
-                else:
-                    ridge_df = pd.DataFrame(ridge_rows)
-                    ridge_height = max(280, 28 * len(tpm_order))
-                    density = (
-                        alt.Chart(ridge_df)
-                        .mark_area(interpolate="monotone", fillOpacity=0.6, stroke="white", strokeWidth=0.5)
-                        .encode(
-                            x=alt.X("tpm_plot:Q", title=x_title),
-                            y=alt.Y("density:Q", stack=None, title=None, axis=None),
-                            yOffset=alt.YOffset("dataset:N", sort=tpm_order),
-                            color=alt.Color(
-                                "dataset:N",
-                                legend=alt.Legend(title="Dataset", orient="bottom", columns=2),
-                            ),
-                            tooltip=["dataset:N", "tpm_plot:Q", "density:Q"],
-                        )
-                        .properties(height=ridge_height)
-                    )
-                    st.markdown("**TPM distribution (ridgeline)**")
-                    st.altair_chart(density, use_container_width=True)
-        else:
-            st.info("TPM distribution unavailable (no TPM columns found).")
-
-        # Log2FC distribution (box/violin grid)
-        log_rows = []
-        log_order = []
-        # In-house MCD
-        for label, df in inhouse_mcd_frames.items():
-            key = f"inhouse_mcd_{slugify(label)}"
-            padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
-            tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
-            series = log2fc_series(df, padj_eff, tpm_eff, log2fc_cutoff=lfc_eff)
-            if not series.empty:
-                name = f"MCD (in-house) | {label}"
-                log_rows.extend({"analysis": name, "group": "MCD (in-house)", "log2FC": float(v)} for v in series.values)
-                log_order.append(name)
-        # External MCD
-        for label, df in external_mcd_frames.items():
-            key = f"external_mcd_{slugify(label)}"
-            padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
-            tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
-            series = log2fc_series(df, padj_eff, tpm_eff, log2fc_cutoff=lfc_eff)
-            if not series.empty:
-                name = f"MCD (external) | {label.split(' ')[0]}"
-                log_rows.extend({"analysis": name, "group": "MCD (external)", "log2FC": float(v)} for v in series.values)
-                log_order.append(name)
-        # Patient datasets
-        for dataset, info in patient_data.items():
-            if info.get("error") or info.get("paths") is None:
-                continue
-            key = f"patient_{slugify(dataset)}"
-            nas_padj, nas_lfc = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
-            top_padj = get_topright_padj(key, default_padj=padj_cutoff)
-            tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
-
-            series = log2fc_series(info["nas_high"], nas_padj, tpm_eff, log2fc_cutoff=nas_lfc)
-            if not series.empty:
-                name = f"Patient | {dataset} NAS high"
-                log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
-                log_order.append(name)
-
-            series = log2fc_series(info["fibrosis"], nas_padj, tpm_eff, log2fc_cutoff=nas_lfc)
-            if not series.empty:
-                name = f"Patient | {dataset} Fibrosis (up)"
-                log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
-                log_order.append(name)
-
-            for label, df in (("NAS low", info["nas_low"]), ("Fibrosis", info["fibrosis"])):
-                series = log2fc_series(df, top_padj, tpm_eff, log2fc_cutoff=None)
-                if not series.empty:
-                    name = f"Patient | {dataset} {label}"
-                    log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
-                    log_order.append(name)
-
-        if log_rows:
-            log_df = pd.DataFrame(log_rows)
-            log_height = max(280, 18 * len(log_order))
-            log_chart = (
-                alt.Chart(log_df)
-                .mark_boxplot(size=12, extent="min-max")
-                .encode(
-                    x=alt.X("log2FC:Q", title="log2FoldChange (filtered by current cutoffs)"),
-                    y=alt.Y("analysis:N", sort=log_order, title=None),
-                    color=alt.Color("group:N", legend=alt.Legend(title="Group")),
-                    tooltip=["analysis:N", "log2FC:Q"],
-                )
-                .properties(height=log_height)
-            )
-            st.markdown("**Log2FC distribution (box/violin grid)**")
-            st.altair_chart(log_chart, use_container_width=True)
-            st.caption(
-                "NAS-low and Fibrosis distributions use padj+TPM only (no log2FC cutoff), "
-                "consistent with how top-right sets are defined."
-            )
-        else:
-            st.info("Log2FC distribution unavailable at current cutoffs.")
-
 # ===== Top summary =====
 st.subheader("Overall summary")
 
@@ -1629,6 +1459,176 @@ if summary_rows:
                         st.altair_chart(chart, use_container_width=True)
                     except Exception:
                         st.bar_chart(bar_df, stack=True, width="stretch")
+
+                # ===== Distributions =====
+                with st.expander("Distributions", expanded=False):
+                    try:
+                        import altair as alt
+                    except Exception:
+                        st.info("Altair not available for distribution plots.")
+                    else:
+                        # TPM ridgeline (per dataset)
+                        tpm_view = st.radio(
+                            "TPM view",
+                            ["Log10(TPM + 1)", "Linear (p99 clipped)"],
+                            index=0,
+                            horizontal=True,
+                            key="tpm_ridge_view",
+                        )
+                        tpm_rows = []
+                        tpm_order = []
+                        # In-house MCD (single dataset)
+                        if inhouse_mcd_frames:
+                            label = "MCD (in-house)"
+                            df = next(iter(inhouse_mcd_frames.values()))
+                            if "tpm_mean" in df.columns:
+                                tpm_rows.extend(
+                                    {"dataset": label, "tpm": float(val)} for val in df["tpm_mean"].dropna().values
+                                )
+                                tpm_order.append(label)
+                        # External MCD (GSEs)
+                        for label, df in external_mcd_frames.items():
+                            short = label.split(" ")[0]
+                            if "tpm_mean" in df.columns:
+                                tpm_rows.extend(
+                                    {"dataset": short, "tpm": float(val)} for val in df["tpm_mean"].dropna().values
+                                )
+                                tpm_order.append(short)
+                        # Patient datasets (use NAS high table as representative)
+                        for dataset, info in patient_data.items():
+                            if info.get("error") or info.get("paths") is None:
+                                continue
+                            df = info["nas_high"]
+                            if "tpm_mean" in df.columns:
+                                tpm_rows.extend(
+                                    {"dataset": dataset, "tpm": float(val)} for val in df["tpm_mean"].dropna().values
+                                )
+                                tpm_order.append(dataset)
+
+                        if tpm_rows:
+                            tpm_df = pd.DataFrame(tpm_rows)
+                            if tpm_view == "Log10(TPM + 1)":
+                                tpm_df["tpm_plot"] = np.log10(tpm_df["tpm"] + 1.0)
+                                x_title = "log10(TPM + 1)"
+                            else:
+                                p99 = tpm_df["tpm"].quantile(0.99)
+                                tpm_df["tpm_plot"] = tpm_df["tpm"].clip(upper=p99)
+                                x_title = "TPM (clipped at p99)"
+                            min_val = tpm_df["tpm_plot"].min()
+                            max_val = tpm_df["tpm_plot"].max()
+                            if pd.isna(min_val) or pd.isna(max_val) or min_val == max_val:
+                                st.info("TPM distribution unavailable (insufficient variation).")
+                            else:
+                                bins = np.linspace(min_val, max_val, 80)
+                                ridge_rows = []
+                                for dataset in tpm_order:
+                                    vals = tpm_df.loc[tpm_df["dataset"] == dataset, "tpm_plot"].dropna().values
+                                    if vals.size < 2:
+                                        continue
+                                    hist, edges = np.histogram(vals, bins=bins, density=True)
+                                    centers = (edges[:-1] + edges[1:]) / 2.0
+                                    ridge_rows.extend(
+                                        {"dataset": dataset, "tpm_plot": float(c), "density": float(d)}
+                                        for c, d in zip(centers, hist)
+                                    )
+                                if not ridge_rows:
+                                    st.info("TPM distribution unavailable (insufficient data).")
+                                else:
+                                    ridge_df = pd.DataFrame(ridge_rows)
+                                    ridge_height = max(280, 28 * len(tpm_order))
+                                    density = (
+                                        alt.Chart(ridge_df)
+                                        .mark_area(interpolate="monotone", fillOpacity=0.6, stroke="white", strokeWidth=0.5)
+                                        .encode(
+                                            x=alt.X("tpm_plot:Q", title=x_title),
+                                            y=alt.Y("density:Q", stack=None, title=None, axis=None),
+                                            yOffset=alt.YOffset("dataset:N", sort=tpm_order),
+                                            color=alt.Color(
+                                                "dataset:N",
+                                                legend=alt.Legend(title="Dataset", orient="bottom", columns=2),
+                                            ),
+                                            tooltip=["dataset:N", "tpm_plot:Q", "density:Q"],
+                                        )
+                                        .properties(height=ridge_height)
+                                    )
+                                    st.markdown("**TPM distribution (ridgeline)**")
+                                    st.altair_chart(density, use_container_width=True)
+                        else:
+                            st.info("TPM distribution unavailable (no TPM columns found).")
+
+                        # Log2FC distribution (box/violin grid)
+                        log_rows = []
+                        log_order = []
+                        # In-house MCD
+                        for label, df in inhouse_mcd_frames.items():
+                            key = f"inhouse_mcd_{slugify(label)}"
+                            padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
+                            tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
+                            series = log2fc_series(df, padj_eff, tpm_eff, log2fc_cutoff=lfc_eff)
+                            if not series.empty:
+                                name = f"MCD (in-house) | {label}"
+                                log_rows.extend({"analysis": name, "group": "MCD (in-house)", "log2FC": float(v)} for v in series.values)
+                                log_order.append(name)
+                        # External MCD
+                        for label, df in external_mcd_frames.items():
+                            key = f"external_mcd_{slugify(label)}"
+                            padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
+                            tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
+                            series = log2fc_series(df, padj_eff, tpm_eff, log2fc_cutoff=lfc_eff)
+                            if not series.empty:
+                                name = f"MCD (external) | {label.split(' ')[0]}"
+                                log_rows.extend({"analysis": name, "group": "MCD (external)", "log2FC": float(v)} for v in series.values)
+                                log_order.append(name)
+                        # Patient datasets
+                        for dataset, info in patient_data.items():
+                            if info.get("error") or info.get("paths") is None:
+                                continue
+                            key = f"patient_{slugify(dataset)}"
+                            nas_padj, nas_lfc = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
+                            top_padj = get_topright_padj(key, default_padj=padj_cutoff)
+                            tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
+
+                            series = log2fc_series(info["nas_high"], nas_padj, tpm_eff, log2fc_cutoff=nas_lfc)
+                            if not series.empty:
+                                name = f"Patient | {dataset} NAS high"
+                                log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
+                                log_order.append(name)
+
+                            series = log2fc_series(info["fibrosis"], nas_padj, tpm_eff, log2fc_cutoff=nas_lfc)
+                            if not series.empty:
+                                name = f"Patient | {dataset} Fibrosis (up)"
+                                log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
+                                log_order.append(name)
+
+                            for label, df in (("NAS low", info["nas_low"]), ("Fibrosis", info["fibrosis"])):
+                                series = log2fc_series(df, top_padj, tpm_eff, log2fc_cutoff=None)
+                                if not series.empty:
+                                    name = f"Patient | {dataset} {label}"
+                                    log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
+                                    log_order.append(name)
+
+                        if log_rows:
+                            log_df = pd.DataFrame(log_rows)
+                            log_height = max(280, 18 * len(log_order))
+                            log_chart = (
+                                alt.Chart(log_df)
+                                .mark_boxplot(size=12, extent="min-max")
+                                .encode(
+                                    x=alt.X("log2FC:Q", title="log2FoldChange (filtered by current cutoffs)"),
+                                    y=alt.Y("analysis:N", sort=log_order, title=None),
+                                    color=alt.Color("group:N", legend=alt.Legend(title="Group")),
+                                    tooltip=["analysis:N", "log2FC:Q"],
+                                )
+                                .properties(height=log_height)
+                            )
+                            st.markdown("**Log2FC distribution (box/violin grid)**")
+                            st.altair_chart(log_chart, use_container_width=True)
+                            st.caption(
+                                "NAS-low and Fibrosis distributions use padj+TPM only (no log2FC cutoff), "
+                                "consistent with how top-right sets are defined."
+                            )
+                        else:
+                            st.info("Log2FC distribution unavailable at current cutoffs.")
 
             if BIOTYPE_PATH is None:
                 st.info("Biotype map not found; biotype breakdown is unavailable.")
