@@ -2140,40 +2140,6 @@ if summary_rows:
             st.caption("Pairwise overlap counts")
             render_table(overlap.reset_index().rename(columns={"index": "set"}))
 
-            if len(selected_labels) > 3:
-                st.markdown("**Multi-set overlap (UpSet)**")
-                try:
-                    import upsetplot as upsetplot_module
-                    from upsetplot import UpSet
-                except Exception:
-                    st.info("UpSet plot unavailable (missing upsetplot).")
-                else:
-                    union_genes = set().union(*selected_sets.values()) if selected_sets else set()
-                    if not union_genes:
-                        st.info("UpSet plot unavailable (no overlap data).")
-                    else:
-                        if hasattr(upsetplot_module, "from_contents"):
-                            upset_data = upsetplot_module.from_contents(selected_sets)
-                        elif hasattr(upsetplot_module, "from_memberships"):
-                            memberships = []
-                            for gid in union_genes:
-                                memberships.append(
-                                    [name for name, gene_set in selected_sets.items() if gid in gene_set]
-                                )
-                            upset_data = upsetplot_module.from_memberships(memberships)
-                        else:
-                            upset_data = None
-
-                        if upset_data is None or upset_data.empty:
-                            st.info("UpSet plot unavailable (no overlap data).")
-                        else:
-                            fig = plt.figure(figsize=(min(10, 1.2 * len(selected_labels) + 3), 4.5))
-                            upset = UpSet(upset_data, show_counts=True, sort_by="cardinality")
-                            upset.plot(fig=fig)
-                            st.pyplot(fig, use_container_width=True)
-                            plt.close(fig)
-                            st.caption("Pairwise heatmap shown below for reference.")
-
             try:
                 import altair as alt
             except Exception:
