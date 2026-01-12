@@ -28,7 +28,8 @@ Bundled DEG tables live in `data/` (compressed), plus a mouse→human ortholog m
 used for cross-species de-duplication. A manifest is in `data/manifest.tsv`.
 Bundled tables may include a `tpm_mean` column (mean TPM across all samples in each dataset).
 Bundled tables may include a `gene_symbol` column.
-If `GWAS/Closest_genes.csv` exists, the GWAS set becomes available as a selectable human set.
+If `data/Closest_genes.csv` exists, the GWAS set becomes available as a selectable human set.
+If `data/gwas_gene_biotype_analysis.csv` is present, it is used to map GWAS symbols to Ensembl IDs.
 
 To rebuild the manifest:
 ```

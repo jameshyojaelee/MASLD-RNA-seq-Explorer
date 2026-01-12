@@ -117,8 +117,20 @@ elif DATA_DIR is not None and (DATA_DIR / BIOTYPE_FILENAME).exists():
 else:
     BIOTYPE_PATH = None
 
-GWAS_CLOSEST_GENES_PATH = ROOT / "GWAS" / "Closest_genes.csv"
-GWAS_GENE_BIOTYPE_PATH = ROOT / "GWAS" / "gwas_gene_biotype_analysis.csv"
+GWAS_CLOSEST_GENES_FILENAME = "Closest_genes.csv"
+GWAS_GENE_BIOTYPE_FILENAME = "gwas_gene_biotype_analysis.csv"
+
+GWAS_CLOSEST_GENES_PATH = None
+if DATA_DIR is not None and (DATA_DIR / GWAS_CLOSEST_GENES_FILENAME).exists():
+    GWAS_CLOSEST_GENES_PATH = DATA_DIR / GWAS_CLOSEST_GENES_FILENAME
+elif (ROOT / "GWAS" / GWAS_CLOSEST_GENES_FILENAME).exists():
+    GWAS_CLOSEST_GENES_PATH = ROOT / "GWAS" / GWAS_CLOSEST_GENES_FILENAME
+
+GWAS_GENE_BIOTYPE_PATH = None
+if DATA_DIR is not None and (DATA_DIR / GWAS_GENE_BIOTYPE_FILENAME).exists():
+    GWAS_GENE_BIOTYPE_PATH = DATA_DIR / GWAS_GENE_BIOTYPE_FILENAME
+elif (ROOT / "GWAS" / GWAS_GENE_BIOTYPE_FILENAME).exists():
+    GWAS_GENE_BIOTYPE_PATH = ROOT / "GWAS" / GWAS_GENE_BIOTYPE_FILENAME
 GWAS_GENE_ANNOTATION_PATHS = [
     ROOT
     / "RNA-seq"
@@ -974,9 +986,9 @@ gwas_symbol_map: dict[str, str] = {}
 gwas_unmapped: set[str] = set()
 gwas_label: str | None = None
 gwas_symbol_map_paths = list(GWAS_GENE_ANNOTATION_PATHS)
-if GWAS_GENE_BIOTYPE_PATH.exists():
+if GWAS_GENE_BIOTYPE_PATH is not None and GWAS_GENE_BIOTYPE_PATH.exists():
     gwas_symbol_map_paths.append(GWAS_GENE_BIOTYPE_PATH)
-if GWAS_CLOSEST_GENES_PATH.exists():
+if GWAS_CLOSEST_GENES_PATH is not None and GWAS_CLOSEST_GENES_PATH.exists():
     gwas_genes, gwas_symbol_map, gwas_unmapped = load_gwas_closest_genes(
         GWAS_CLOSEST_GENES_PATH, gwas_symbol_map_paths
     )
