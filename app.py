@@ -1671,30 +1671,31 @@ if summary_rows:
 
                                 col_volcano, col_expr = st.columns(2)
                                 with col_volcano:
-                                    fig, ax = plt.subplots(figsize=(6, 4))
+                                    fig, ax = plt.subplots(figsize=(6, 3))
                                     ax.scatter(
                                         base_df.loc[~base_df["pass"], "log2FoldChange"],
                                         base_df.loc[~base_df["pass"], "neg_log10_padj"],
-                                        s=8,
-                                        alpha=0.35,
+                                        s=6,
+                                        alpha=0.3,
                                         color="#B9B3AD",
                                         label="Other",
                                     )
                                     ax.scatter(
                                         base_df.loc[base_df["pass"], "log2FoldChange"],
                                         base_df.loc[base_df["pass"], "neg_log10_padj"],
-                                        s=10,
-                                        alpha=0.7,
+                                        s=8,
+                                        alpha=0.6,
                                         color="#C23B75",
                                         label="Pass cutoffs",
                                     )
                                     if padj_eff > 0:
                                         ax.axhline(-np.log10(padj_eff), color="#444444", linestyle="--", linewidth=1)
                                     ax.axvline(lfc_eff, color="#444444", linestyle="--", linewidth=1)
-                                    ax.set_xlabel("log2FoldChange")
-                                    ax.set_ylabel("-log10(padj)")
-                                    ax.set_title("Volcano")
-                                    ax.legend(loc="upper right", fontsize=8)
+                                    ax.set_xlabel("log2FoldChange", fontsize=9)
+                                    ax.set_ylabel("-log10(padj)", fontsize=9)
+                                    ax.set_title("Volcano", fontsize=10)
+                                    ax.tick_params(labelsize=8)
+                                    ax.legend(loc="upper right", fontsize=7, frameon=False)
                                     st.pyplot(fig, use_container_width=True)
                                     plt.close(fig)
 
@@ -1711,20 +1712,20 @@ if summary_rows:
                                             st.info("Expression plot unavailable (no TPM values).")
                                         else:
                                             expr_df["log10_tpm"] = np.log10(expr_df["tpm_mean"] + 1.0)
-                                            fig, ax = plt.subplots(figsize=(6, 4))
+                                            fig, ax = plt.subplots(figsize=(6, 3))
                                             ax.scatter(
                                                 expr_df.loc[~expr_df["pass"], "log10_tpm"],
                                                 expr_df.loc[~expr_df["pass"], "log2FoldChange"],
-                                                s=8,
-                                                alpha=0.35,
+                                                s=6,
+                                                alpha=0.3,
                                                 color="#B9B3AD",
                                                 label="Other",
                                             )
                                             ax.scatter(
                                                 expr_df.loc[expr_df["pass"], "log10_tpm"],
                                                 expr_df.loc[expr_df["pass"], "log2FoldChange"],
-                                                s=10,
-                                                alpha=0.7,
+                                                s=8,
+                                                alpha=0.6,
                                                 color="#C23B75",
                                                 label="Pass cutoffs",
                                             )
@@ -1736,10 +1737,11 @@ if summary_rows:
                                                     linewidth=1,
                                                 )
                                             ax.axhline(lfc_eff, color="#444444", linestyle="--", linewidth=1)
-                                            ax.set_xlabel("log10(TPM + 1)")
-                                            ax.set_ylabel("log2FoldChange")
-                                            ax.set_title("Expression vs log2FC")
-                                            ax.legend(loc="upper right", fontsize=8)
+                                            ax.set_xlabel("log10(TPM + 1)", fontsize=9)
+                                            ax.set_ylabel("log2FoldChange", fontsize=9)
+                                            ax.set_title("Expression vs log2FC", fontsize=10)
+                                            ax.tick_params(labelsize=8)
+                                            ax.legend(loc="upper right", fontsize=7, frameon=False)
                                             st.pyplot(fig, use_container_width=True)
                                             plt.close(fig)
                     else:
@@ -1922,7 +1924,7 @@ if summary_rows:
                                 "Top-gene plots are available only for base DEG tables; "
                                 "skipping: " + ", ".join(missing_plot_labels)
                             )
-                        top_n = st.slider("Top N genes", min_value=5, max_value=50, value=20, step=5)
+                        top_n = st.slider("Top N genes", min_value=5, max_value=50, value=15, step=5)
                         rank_by = st.radio(
                             "Rank by",
                             ["log2FC", "-log10(padj)"],
@@ -1969,10 +1971,11 @@ if summary_rows:
                                     for symbol, gid in zip(plot_df["gene_symbol"], plot_df["gene_id"])
                                 ]
 
-                                fig, ax = plt.subplots(figsize=(6, max(3, 0.35 * len(plot_df))))
+                                fig, ax = plt.subplots(figsize=(6, max(2.6, 0.22 * len(plot_df))))
                                 ax.barh(labels, plot_df["rank_value"], color="#C23B75")
-                                ax.set_xlabel(x_label)
-                                ax.set_title("Top genes")
+                                ax.set_xlabel(x_label, fontsize=9)
+                                ax.set_title("Top genes", fontsize=10)
+                                ax.tick_params(labelsize=8)
                                 ax.grid(axis="x", alpha=0.2)
                                 st.pyplot(fig, use_container_width=True)
                                 plt.close(fig)
@@ -2164,7 +2167,7 @@ if summary_rows:
                         if upset_data is None or upset_data.empty:
                             st.info("UpSet plot unavailable (no overlap data).")
                         else:
-                            fig = plt.figure(figsize=(min(12, 1.6 * len(selected_labels) + 4), 6))
+                            fig = plt.figure(figsize=(min(10, 1.2 * len(selected_labels) + 3), 4.5))
                             upset = UpSet(upset_data, show_counts=True, sort_by="cardinality")
                             upset.plot(fig=fig)
                             st.pyplot(fig, use_container_width=True)
