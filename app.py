@@ -785,7 +785,7 @@ def synced_cutoff(
     return st.session_state[f"{key_base}_val"]
 
 
-st.set_page_config(page_title="MASLD RNA-seq DEG Explorer", layout="wide")
+st.set_page_config(page_title="Cas13 MASLD Library Explorer", layout="wide")
 
 st.markdown(
     """
@@ -895,13 +895,14 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("MASLD RNA-seq DEG Explorer")
+st.title("Cas13 MASLD Library Explorer")
 st.markdown(
     """
 **Overview**
 - **Mouse (in-house MCD)**: Week 1/2/3 MCD vs control contrasts from the in-house MCD diet study.
 - **Mouse (external MCD GEO)**: **GSE156918** and **GSE205974** Control vs MCD contrasts.
 - **Patient (human)**: GEO datasets **GSE130970** and **GSE135251** (NAFLD/NASH/MASLD cohorts).
+- **GWAS (human, optional)**: liver disease GWAS SNPs with the closest genes to each SNP.
 - This app reports **upregulated DEGs only** (log2FC > cutoff) and lets you adjust padj/log2FC cutoffs globally or per-dataset.
 - TPM filtering uses **mean TPM across all samples within each dataset** (if available).
 - **Patient (cross-dataset)**: top-right quadrant overlaps using the global padj/log2FC cutoffs.

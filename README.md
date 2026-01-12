@@ -1,4 +1,4 @@
-# MASLD RNA-seq DEG Explorer
+# Cas13 MASLD Library Explorer
 
 Streamlit app to explore **upregulated** DEG counts across in-house MCD (mouse) and
 public GEO patient datasets (GSE130970, GSE135251), plus cross-dataset comparisons.
@@ -10,7 +10,7 @@ Includes an optional **TPM cutoff** (mean TPM per dataset) when TPM columns are 
 - Cross-species **de-duplication** using mouse→human orthologs (toggle one-to-one only, include unmapped).
 - Contribution breakdown + downloadable deduplicated gene list.
 - Overlap Explorer for pairwise and multi-set intersections.
-- Optional GWAS closest-gene set (from `GWAS/Closest_genes.csv`) when available.
+- Optional GWAS closest-gene set (liver disease GWAS SNPs; closest genes to the SNPs).
 
 ## Live app (Streamlit Community Cloud)
 This URL should remain stable as long as the app name/workspace are unchanged:
@@ -28,7 +28,8 @@ Bundled DEG tables live in `data/` (compressed), plus a mouse→human ortholog m
 used for cross-species de-duplication. A manifest is in `data/manifest.tsv`.
 Bundled tables may include a `tpm_mean` column (mean TPM across all samples in each dataset).
 Bundled tables may include a `gene_symbol` column.
-If `data/Closest_genes.csv` exists, the GWAS set becomes available as a selectable human set.
+If `data/Closest_genes.csv` exists, the GWAS set becomes available as a selectable human set
+based on liver disease GWAS SNPs and their closest genes.
 If `data/gwas_gene_biotype_analysis.csv` is present, it is used to map GWAS symbols to Ensembl IDs.
 
 To rebuild the manifest:
