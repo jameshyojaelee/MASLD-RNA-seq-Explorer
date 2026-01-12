@@ -1684,7 +1684,7 @@ if summary_rows:
 
                                 col_volcano, col_expr = st.columns(2)
                                 with col_volcano:
-                                    fig, ax = plt.subplots(figsize=(4.6, 2.6))
+                                    fig, ax = plt.subplots(figsize=(2.3, 1.3))
                                     ax.scatter(
                                         base_df.loc[~base_df["pass"], "log2FoldChange"],
                                         base_df.loc[~base_df["pass"], "neg_log10_padj"],
@@ -1725,7 +1725,7 @@ if summary_rows:
                                             st.info("Expression plot unavailable (no TPM values).")
                                         else:
                                             expr_df["log10_tpm"] = np.log10(expr_df["tpm_mean"] + 1.0)
-                                            fig, ax = plt.subplots(figsize=(4.6, 2.6))
+                                            fig, ax = plt.subplots(figsize=(2.3, 1.3))
                                             ax.scatter(
                                                 expr_df.loc[~expr_df["pass"], "log10_tpm"],
                                                 expr_df.loc[~expr_df["pass"], "log2FoldChange"],
@@ -1984,7 +1984,7 @@ if summary_rows:
                                     for symbol, gid in zip(plot_df["gene_symbol"], plot_df["gene_id"])
                                 ]
 
-                                fig, ax = plt.subplots(figsize=(4.6, max(2.0, 0.16 * len(plot_df))))
+                                fig, ax = plt.subplots(figsize=(1.53, max(0.67, 0.053 * len(plot_df))))
                                 ax.barh(labels, plot_df["rank_value"], color="#C23B75")
                                 ax.set_xlabel(x_label, fontsize=8)
                                 ax.set_title("Top genes", fontsize=9)
