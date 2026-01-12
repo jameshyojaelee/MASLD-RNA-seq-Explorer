@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Iterable
 import numpy as np
 import math
+import matplotlib.pyplot as plt
 
 import pandas as pd
 import streamlit as st
@@ -115,6 +116,29 @@ elif DATA_DIR is not None and (DATA_DIR / BIOTYPE_FILENAME).exists():
     BIOTYPE_PATH = DATA_DIR / BIOTYPE_FILENAME
 else:
     BIOTYPE_PATH = None
+
+GWAS_CLOSEST_GENES_PATH = ROOT / "GWAS" / "Closest_genes.csv"
+GWAS_GENE_BIOTYPE_PATH = ROOT / "GWAS" / "gwas_gene_biotype_analysis.csv"
+GWAS_GENE_ANNOTATION_PATHS = [
+    ROOT
+    / "RNA-seq"
+    / "patient_RNAseq"
+    / "results"
+    / "GSE130970"
+    / "edgeR_results"
+    / "edgeR_optimized_20250622_073427"
+    / "results"
+    / "gene_annotations.csv",
+    ROOT
+    / "RNA-seq"
+    / "patient_RNAseq"
+    / "results"
+    / "GSE135251"
+    / "edgeR_results"
+    / "edgeR_with_gene_names_20250621_171101"
+    / "results"
+    / "gene_annotations.csv",
+]
 
 
 @st.cache_data(show_spinner=False)
@@ -225,6 +249,64 @@ def load_symbol_maps_from_bundled(data_dir: Path) -> tuple[dict[str, str], dict[
             elif gid_norm.startswith("ENSMUSG"):
                 mouse_map.setdefault(gid_norm, symbol)
     return human_map, mouse_map
+
+
+@st.cache_data(show_spinner=False)
+def load_symbol_to_ensembl_map(paths: list[Path]) -> dict[str, set[str]]:
+    mapping: dict[str, set[str]] = {}
+    for path in paths:
+        if path is None or not path.exists():
+            continue
+        df = pd.read_csv(path)
+        cols = {c.lower(): c for c in df.columns}
+        symbol_col = cols.get("external_gene_name") or cols.get("gene_symbol_clean") or cols.get("gene_symbol")
+        ensembl_col = cols.get("ensembl_gene_id") or cols.get("ensembl_id")
+        if symbol_col is None or ensembl_col is None:
+            continue
+        for symbol, ensembl in zip(df[symbol_col].astype(str), df[ensembl_col].astype(str)):
+            symbol = symbol.strip()
+            ensembl = ensembl.strip()
+            if not symbol or symbol == "nan" or not ensembl or ensembl == "nan":
+                continue
+            mapping.setdefault(symbol, set()).add(strip_version(ensembl))
+    return mapping
+
+
+@st.cache_data(show_spinner=False)
+def load_gwas_closest_genes(
+    path: Path, mapping_paths: list[Path]
+) -> tuple[set[str], dict[str, str], set[str]]:
+    gene_ids: set[str] = set()
+    id_to_symbol: dict[str, str] = {}
+    unmapped: set[str] = set()
+    if path is None or not path.exists():
+        return gene_ids, id_to_symbol, unmapped
+    symbol_map = load_symbol_to_ensembl_map(mapping_paths)
+    with path.open() as fh:
+        for line in fh:
+            raw = line.strip()
+            if not raw:
+                continue
+            for part in raw.split("|"):
+                symbol = part.strip()
+                if not symbol:
+                    continue
+                if symbol.startswith("ENSG"):
+                    gid = strip_version(symbol)
+                    gene_ids.add(gid)
+                    id_to_symbol.setdefault(gid, symbol)
+                    continue
+                mapped = symbol_map.get(symbol)
+                if mapped:
+                    for gid in mapped:
+                        gid_norm = strip_version(gid)
+                        gene_ids.add(gid_norm)
+                        id_to_symbol.setdefault(gid_norm, symbol)
+                else:
+                    gene_ids.add(symbol)
+                    id_to_symbol.setdefault(symbol, symbol)
+                    unmapped.add(symbol)
+    return gene_ids, id_to_symbol, unmapped
 
 
 def add_tpm_from_map(df: pd.DataFrame, tpm_map: dict[str, float] | None) -> pd.DataFrame:
@@ -887,6 +969,20 @@ for dataset in PATIENT_DATASETS:
         "fibrosis": fibrosis,
     }
 
+gwas_genes: set[str] = set()
+gwas_symbol_map: dict[str, str] = {}
+gwas_unmapped: set[str] = set()
+gwas_label: str | None = None
+gwas_symbol_map_paths = list(GWAS_GENE_ANNOTATION_PATHS)
+if GWAS_GENE_BIOTYPE_PATH.exists():
+    gwas_symbol_map_paths.append(GWAS_GENE_BIOTYPE_PATH)
+if GWAS_CLOSEST_GENES_PATH.exists():
+    gwas_genes, gwas_symbol_map, gwas_unmapped = load_gwas_closest_genes(
+        GWAS_CLOSEST_GENES_PATH, gwas_symbol_map_paths
+    )
+    if gwas_genes:
+        gwas_label = make_label("GWAS", "human", "Closest genes")
+
 # ===== TPM slider bounds =====
 def gather_tpm_max() -> float:
     candidates = []
@@ -984,6 +1080,16 @@ with col_human:
     
     if opts:
         active_labels.extend(selection_component("Cross-dataset", opts, "cross"))
+
+    # GWAS
+    if gwas_genes and gwas_label is not None:
+        active_labels.extend(
+            selection_component("GWAS", [("Closest genes", gwas_label)], "gwas")
+        )
+        if gwas_unmapped:
+            st.caption(
+                f"GWAS list includes {len(gwas_unmapped)} symbols without Ensembl IDs; keeping them as symbols."
+            )
 
 # ===== Global Sliders + Inputs =====
 padj_cutoff = synced_cutoff(
@@ -1284,6 +1390,20 @@ for dataset, info in patient_data.items():
         "genes": nas_high_vs_nas_low_set,
     }
 
+if gwas_genes and gwas_label is not None:
+    summary_rows.append(
+        {
+            "group": "GWAS",
+            "dataset": "human",
+            "analysis": "Closest genes",
+            "padj": "-",
+            "log2FC": "-",
+            "tpm": "-",
+            "count": len(gwas_genes),
+        }
+    )
+    summary_sets[gwas_label] = {"species": "human", "genes": gwas_genes}
+
 pair_a, pair_b = PATIENT_CROSS_DATASET_PAIR
 info_a = patient_data.get(pair_a)
 info_b = patient_data.get(pair_b)
@@ -1364,6 +1484,9 @@ if summary_rows:
             st.metric("Total DEGs (deduplicated across mouse+human)", dedup_total)
             if dedup_total:
                 human_symbol_map, mouse_symbol_map = load_symbol_maps_from_bundled(DATA_DIR)
+                if gwas_symbol_map:
+                    for gid, symbol in gwas_symbol_map.items():
+                        human_symbol_map.setdefault(strip_version(gid), symbol)
                 human_biotype_map = {}
                 mouse_biotype_map = {}
                 if BIOTYPE_PATH is not None and BIOTYPE_PATH.exists():
@@ -1460,8 +1583,168 @@ if summary_rows:
                     except Exception:
                         st.bar_chart(bar_df, stack=True, width="stretch")
 
+                    plot_sources: dict[str, dict[str, object]] = {}
+                    for label, df in inhouse_mcd_frames.items():
+                        key = f"inhouse_mcd_{slugify(label)}"
+                        padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
+                        tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
+                        plot_label = make_label("MCD (in-house)", "mouse", label)
+                        plot_sources[plot_label] = {
+                            "df": df,
+                            "padj": padj_eff,
+                            "log2fc": lfc_eff,
+                            "tpm": tpm_eff,
+                            "species": "mouse",
+                            "genes": raw_sets.get(plot_label, set()),
+                        }
+                    for label, df in external_mcd_frames.items():
+                        key = f"external_mcd_{slugify(label)}"
+                        padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
+                        tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
+                        plot_label = make_label("MCD (external)", "mouse", label)
+                        plot_sources[plot_label] = {
+                            "df": df,
+                            "padj": padj_eff,
+                            "log2fc": lfc_eff,
+                            "tpm": tpm_eff,
+                            "species": "mouse",
+                            "genes": raw_sets.get(plot_label, set()),
+                        }
+                    for dataset, info in patient_data.items():
+                        if info.get("error") or info.get("paths") is None:
+                            continue
+                        key = f"patient_{slugify(dataset)}"
+                        nas_padj, nas_lfc = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
+                        tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
+                        nas_label = make_label("Patient", dataset, "NAS high (upregulated)")
+                        plot_sources[nas_label] = {
+                            "df": info["nas_high"],
+                            "padj": nas_padj,
+                            "log2fc": nas_lfc,
+                            "tpm": tpm_eff,
+                            "species": "human",
+                            "genes": raw_sets.get(nas_label, set()),
+                        }
+                        fib_label = make_label("Patient", dataset, "Fibrosis (upregulated)")
+                        plot_sources[fib_label] = {
+                            "df": info["fibrosis"],
+                            "padj": nas_padj,
+                            "log2fc": nas_lfc,
+                            "tpm": tpm_eff,
+                            "species": "human",
+                            "genes": raw_sets.get(fib_label, set()),
+                        }
+                    plot_labels = [label for label in active_labels if label in plot_sources]
+                    missing_plot_labels = [label for label in active_labels if label not in plot_sources]
+
                 # ===== Distributions =====
                 with st.expander("Distributions", expanded=False):
+                    if plot_labels:
+                        st.markdown("**Volcano + expression plots (selected datasets)**")
+                        if missing_plot_labels:
+                            st.caption(
+                                "Volcano/expression plots are available only for base DEG tables; "
+                                "skipping: " + ", ".join(missing_plot_labels)
+                            )
+                        tab_labels = [label.split(" | ", 1)[-1] for label in plot_labels]
+                        tabs = st.tabs(tab_labels)
+                        for tab, label in zip(tabs, plot_labels):
+                            source = plot_sources[label]
+                            df = source["df"]
+                            padj_eff = source["padj"]
+                            lfc_eff = source["log2fc"]
+                            tpm_eff = source["tpm"]
+                            with tab:
+                                base_df = df[["log2FoldChange", "padj"]].copy()
+                                base_df["log2FoldChange"] = pd.to_numeric(
+                                    base_df["log2FoldChange"], errors="coerce"
+                                )
+                                base_df["padj"] = pd.to_numeric(base_df["padj"], errors="coerce")
+                                base_df = base_df.dropna(subset=["log2FoldChange", "padj"])
+                                tpm_ok = tpm_mask(df, tpm_eff).reindex(base_df.index, fill_value=True)
+                                base_df["pass"] = (
+                                    (base_df["padj"] < padj_eff)
+                                    & (base_df["log2FoldChange"] > lfc_eff)
+                                    & tpm_ok
+                                )
+                                base_df["neg_log10_padj"] = -np.log10(base_df["padj"].clip(lower=1e-300))
+
+                                col_volcano, col_expr = st.columns(2)
+                                with col_volcano:
+                                    fig, ax = plt.subplots(figsize=(6, 4))
+                                    ax.scatter(
+                                        base_df.loc[~base_df["pass"], "log2FoldChange"],
+                                        base_df.loc[~base_df["pass"], "neg_log10_padj"],
+                                        s=8,
+                                        alpha=0.35,
+                                        color="#B9B3AD",
+                                        label="Other",
+                                    )
+                                    ax.scatter(
+                                        base_df.loc[base_df["pass"], "log2FoldChange"],
+                                        base_df.loc[base_df["pass"], "neg_log10_padj"],
+                                        s=10,
+                                        alpha=0.7,
+                                        color="#C23B75",
+                                        label="Pass cutoffs",
+                                    )
+                                    if padj_eff > 0:
+                                        ax.axhline(-np.log10(padj_eff), color="#444444", linestyle="--", linewidth=1)
+                                    ax.axvline(lfc_eff, color="#444444", linestyle="--", linewidth=1)
+                                    ax.set_xlabel("log2FoldChange")
+                                    ax.set_ylabel("-log10(padj)")
+                                    ax.set_title("Volcano")
+                                    ax.legend(loc="upper right", fontsize=8)
+                                    st.pyplot(fig, use_container_width=True)
+                                    plt.close(fig)
+
+                                with col_expr:
+                                    if "tpm_mean" not in df.columns:
+                                        st.info("TPM mean not available for this dataset.")
+                                    else:
+                                        expr_df = base_df.copy()
+                                        expr_df["tpm_mean"] = pd.to_numeric(
+                                            df.loc[expr_df.index, "tpm_mean"], errors="coerce"
+                                        )
+                                        expr_df = expr_df.dropna(subset=["tpm_mean"])
+                                        if expr_df.empty:
+                                            st.info("Expression plot unavailable (no TPM values).")
+                                        else:
+                                            expr_df["log10_tpm"] = np.log10(expr_df["tpm_mean"] + 1.0)
+                                            fig, ax = plt.subplots(figsize=(6, 4))
+                                            ax.scatter(
+                                                expr_df.loc[~expr_df["pass"], "log10_tpm"],
+                                                expr_df.loc[~expr_df["pass"], "log2FoldChange"],
+                                                s=8,
+                                                alpha=0.35,
+                                                color="#B9B3AD",
+                                                label="Other",
+                                            )
+                                            ax.scatter(
+                                                expr_df.loc[expr_df["pass"], "log10_tpm"],
+                                                expr_df.loc[expr_df["pass"], "log2FoldChange"],
+                                                s=10,
+                                                alpha=0.7,
+                                                color="#C23B75",
+                                                label="Pass cutoffs",
+                                            )
+                                            if tpm_eff > 0:
+                                                ax.axvline(
+                                                    np.log10(tpm_eff + 1.0),
+                                                    color="#444444",
+                                                    linestyle="--",
+                                                    linewidth=1,
+                                                )
+                                            ax.axhline(lfc_eff, color="#444444", linestyle="--", linewidth=1)
+                                            ax.set_xlabel("log10(TPM + 1)")
+                                            ax.set_ylabel("log2FoldChange")
+                                            ax.set_title("Expression vs log2FC")
+                                            ax.legend(loc="upper right", fontsize=8)
+                                            st.pyplot(fig, use_container_width=True)
+                                            plt.close(fig)
+                    else:
+                        st.info("No base DEG datasets selected for volcano/expression plots.")
+
                     try:
                         import altair as alt
                     except Exception:
@@ -1630,6 +1913,76 @@ if summary_rows:
                         else:
                             st.info("Log2FC distribution unavailable at current cutoffs.")
 
+                with st.expander("Top genes (selected datasets)", expanded=False):
+                    if not plot_labels:
+                        st.info("No base DEG datasets selected for top-gene plots.")
+                    else:
+                        if missing_plot_labels:
+                            st.caption(
+                                "Top-gene plots are available only for base DEG tables; "
+                                "skipping: " + ", ".join(missing_plot_labels)
+                            )
+                        top_n = st.slider("Top N genes", min_value=5, max_value=50, value=20, step=5)
+                        rank_by = st.radio(
+                            "Rank by",
+                            ["log2FC", "-log10(padj)"],
+                            horizontal=True,
+                            key="top_gene_rank",
+                        )
+                        tab_labels = [label.split(" | ", 1)[-1] for label in plot_labels]
+                        tabs = st.tabs(tab_labels)
+                        for tab, label in zip(tabs, plot_labels):
+                            source = plot_sources[label]
+                            df = source["df"]
+                            species = source["species"]
+                            genes = source.get("genes", set())
+                            with tab:
+                                if not genes:
+                                    st.info("No genes available at current cutoffs for this dataset.")
+                                    continue
+                                subset = df[df["gene_id"].astype(str).isin(genes)].copy()
+                                subset["gene_id"] = subset["gene_id"].astype(str)
+                                subset["log2FoldChange"] = pd.to_numeric(
+                                    subset["log2FoldChange"], errors="coerce"
+                                )
+                                subset["padj"] = pd.to_numeric(subset["padj"], errors="coerce")
+                                subset = subset.dropna(subset=["log2FoldChange", "padj"])
+                                if subset.empty:
+                                    st.info("No genes available after filtering.")
+                                    continue
+                                symbol_map = human_symbol_map if species == "human" else mouse_symbol_map
+                                subset["gene_symbol"] = subset["gene_id"].map(
+                                    lambda gid: symbol_map.get(strip_version(gid), "")
+                                )
+
+                                if rank_by == "log2FC":
+                                    subset["rank_value"] = subset["log2FoldChange"]
+                                    x_label = "log2FoldChange"
+                                else:
+                                    subset["rank_value"] = -np.log10(subset["padj"].clip(lower=1e-300))
+                                    x_label = "-log10(padj)"
+
+                                subset = subset.sort_values("rank_value", ascending=False).head(top_n)
+                                plot_df = subset.sort_values("rank_value", ascending=True)
+                                labels = [
+                                    symbol if symbol else gid
+                                    for symbol, gid in zip(plot_df["gene_symbol"], plot_df["gene_id"])
+                                ]
+
+                                fig, ax = plt.subplots(figsize=(6, max(3, 0.35 * len(plot_df))))
+                                ax.barh(labels, plot_df["rank_value"], color="#C23B75")
+                                ax.set_xlabel(x_label)
+                                ax.set_title("Top genes")
+                                ax.grid(axis="x", alpha=0.2)
+                                st.pyplot(fig, use_container_width=True)
+                                plt.close(fig)
+
+                                table_df = plot_df.rename(columns={"log2FoldChange": "log2FC"}).copy()
+                                display_cols = ["gene_symbol", "gene_id", "log2FC", "padj"]
+                                if "tpm_mean" in table_df.columns:
+                                    display_cols.append("tpm_mean")
+                                st.dataframe(table_df[display_cols], hide_index=True, width="stretch")
+
             if BIOTYPE_PATH is None:
                 st.info("Biotype map not found; biotype breakdown is unavailable.")
             else:
@@ -1783,6 +2136,40 @@ if summary_rows:
                     overlap.loc[a, b] = len(selected_sets[a] & selected_sets[b])
             st.caption("Pairwise overlap counts")
             render_table(overlap.reset_index().rename(columns={"index": "set"}))
+
+            if len(selected_labels) > 3:
+                st.markdown("**Multi-set overlap (UpSet)**")
+                try:
+                    import upsetplot as upsetplot_module
+                    from upsetplot import UpSet
+                except Exception:
+                    st.info("UpSet plot unavailable (missing upsetplot).")
+                else:
+                    union_genes = set().union(*selected_sets.values()) if selected_sets else set()
+                    if not union_genes:
+                        st.info("UpSet plot unavailable (no overlap data).")
+                    else:
+                        if hasattr(upsetplot_module, "from_contents"):
+                            upset_data = upsetplot_module.from_contents(selected_sets)
+                        elif hasattr(upsetplot_module, "from_memberships"):
+                            memberships = []
+                            for gid in union_genes:
+                                memberships.append(
+                                    [name for name, gene_set in selected_sets.items() if gid in gene_set]
+                                )
+                            upset_data = upsetplot_module.from_memberships(memberships)
+                        else:
+                            upset_data = None
+
+                        if upset_data is None or upset_data.empty:
+                            st.info("UpSet plot unavailable (no overlap data).")
+                        else:
+                            fig = plt.figure(figsize=(min(12, 1.6 * len(selected_labels) + 4), 6))
+                            upset = UpSet(upset_data, show_counts=True, sort_by="cardinality")
+                            upset.plot(fig=fig)
+                            st.pyplot(fig, use_container_width=True)
+                            plt.close(fig)
+                            st.caption("Pairwise heatmap shown below for reference.")
 
             try:
                 import altair as alt
