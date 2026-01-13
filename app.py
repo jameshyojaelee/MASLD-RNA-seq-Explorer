@@ -1982,19 +1982,27 @@ if summary_rows:
                                     for symbol, gid in zip(plot_df["gene_symbol"], plot_df["gene_id"])
                                 ]
 
-                                fig, ax = plt.subplots(figsize=(6, max(3, 0.35 * len(plot_df))))
-                                ax.barh(labels, plot_df["rank_value"], color="#C23B75")
-                                ax.set_xlabel(x_label)
-                                ax.set_title("Top genes")
-                                ax.grid(axis="x", alpha=0.2)
-                                st.pyplot(fig, use_container_width=True)
-                                plt.close(fig)
+                                col_plot, col_table = st.columns([2, 1])
+                                with col_plot:
+                                    fig, ax = plt.subplots(figsize=(6, max(3, 0.35 * len(plot_df))))
+                                    ax.barh(labels, plot_df["rank_value"], color="#C23B75")
+                                    ax.set_xlabel(x_label)
+                                    ax.set_title("Top genes")
+                                    ax.grid(axis="x", alpha=0.2)
+                                    st.pyplot(fig, use_container_width=True)
+                                    plt.close(fig)
 
-                                table_df = plot_df.rename(columns={"log2FoldChange": "log2FC"}).copy()
-                                display_cols = ["gene_symbol", "gene_id", "log2FC", "padj"]
-                                if "tpm_mean" in table_df.columns:
-                                    display_cols.append("tpm_mean")
-                                st.dataframe(table_df[display_cols], hide_index=True, width="stretch")
+                                with col_table:
+                                    table_df = plot_df.rename(columns={"log2FoldChange": "log2FC"}).copy()
+                                    display_cols = ["gene_symbol", "gene_id", "log2FC", "padj"]
+                                    if "tpm_mean" in table_df.columns:
+                                        display_cols.append("tpm_mean")
+                                    st.dataframe(
+                                        table_df[display_cols],
+                                        hide_index=True,
+                                        width="stretch",
+                                        height=260,
+                                    )
 
             if BIOTYPE_PATH is None:
                 st.info("Biotype map not found; biotype breakdown is unavailable.")
