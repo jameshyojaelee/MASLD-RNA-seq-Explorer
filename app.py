@@ -1652,13 +1652,29 @@ if summary_rows:
 
                 # ===== Distributions =====
                 with st.expander("Distributions", expanded=False):
+                    plot_width = 5.2
+                    plot_height = 3.2
+                    table_height = 260
+
                     if plot_labels:
-                        st.markdown("**Volcano + expression plots (selected datasets)**")
+                        st.markdown("**Per-dataset plots (volcano, expression, top genes)**")
                         if missing_plot_labels:
                             st.caption(
-                                "Volcano/expression plots are available only for base DEG tables; "
+                                "Per-dataset plots are available only for base DEG tables; "
                                 "skipping: " + ", ".join(missing_plot_labels)
                             )
+
+                        control_left, control_right = st.columns([1, 2], gap="small")
+                        with control_left:
+                            top_n = st.slider("Top N genes", min_value=5, max_value=50, value=20, step=5)
+                        with control_right:
+                            rank_by = st.radio(
+                                "Rank by",
+                                ["log2FC", "-log10(padj)"],
+                                horizontal=True,
+                                key="top_gene_rank",
+                            )
+
                         tab_labels = [label.split(" | ", 1)[-1] for label in plot_labels]
                         tabs = st.tabs(tab_labels)
                         for tab, label in zip(tabs, plot_labels):
@@ -1667,6 +1683,7 @@ if summary_rows:
                             padj_eff = source["padj"]
                             lfc_eff = source["log2fc"]
                             tpm_eff = source["tpm"]
+                            genes = source.get("genes", set())
                             with tab:
                                 base_df = df[["log2FoldChange", "padj"]].copy()
                                 base_df["log2FoldChange"] = pd.to_numeric(
@@ -1682,9 +1699,9 @@ if summary_rows:
                                 )
                                 base_df["neg_log10_padj"] = -np.log10(base_df["padj"].clip(lower=1e-300))
 
-                                col_volcano, col_expr = st.columns(2)
+                                col_volcano, col_expr = st.columns(2, gap="small")
                                 with col_volcano:
-                                    fig, ax = plt.subplots(figsize=(6, 4))
+                                    fig, ax = plt.subplots(figsize=(plot_width, plot_height))
                                     ax.scatter(
                                         base_df.loc[~base_df["pass"], "log2FoldChange"],
                                         base_df.loc[~base_df["pass"], "neg_log10_padj"],
@@ -1724,7 +1741,7 @@ if summary_rows:
                                             st.info("Expression plot unavailable (no TPM values).")
                                         else:
                                             expr_df["log10_tpm"] = np.log10(expr_df["tpm_mean"] + 1.0)
-                                            fig, ax = plt.subplots(figsize=(6, 4))
+                                            fig, ax = plt.subplots(figsize=(plot_width, plot_height))
                                             ax.scatter(
                                                 expr_df.loc[~expr_df["pass"], "log10_tpm"],
                                                 expr_df.loc[~expr_df["pass"], "log2FoldChange"],
@@ -1755,8 +1772,63 @@ if summary_rows:
                                             ax.legend(loc="upper right", fontsize=8)
                                             st.pyplot(fig, use_container_width=True)
                                             plt.close(fig)
+
+                                st.markdown("**Top genes**")
+                                if not genes:
+                                    st.info("No genes available at current cutoffs for this dataset.")
+                                else:
+                                    subset = df[df["gene_id"].astype(str).isin(genes)].copy()
+                                    subset["gene_id"] = subset["gene_id"].astype(str)
+                                    subset["log2FoldChange"] = pd.to_numeric(
+                                        subset["log2FoldChange"], errors="coerce"
+                                    )
+                                    subset["padj"] = pd.to_numeric(subset["padj"], errors="coerce")
+                                    subset = subset.dropna(subset=["log2FoldChange", "padj"])
+                                    if subset.empty:
+                                        st.info("No genes available after filtering.")
+                                    else:
+                                        symbol_map = human_symbol_map if source["species"] == "human" else mouse_symbol_map
+                                        subset["gene_symbol"] = subset["gene_id"].map(
+                                            lambda gid: symbol_map.get(strip_version(gid), "")
+                                        )
+
+                                        if rank_by == "log2FC":
+                                            subset["rank_value"] = subset["log2FoldChange"]
+                                            x_label = "log2FoldChange"
+                                        else:
+                                            subset["rank_value"] = -np.log10(subset["padj"].clip(lower=1e-300))
+                                            x_label = "-log10(padj)"
+
+                                        subset = subset.sort_values("rank_value", ascending=False).head(top_n)
+                                        plot_df = subset.sort_values("rank_value", ascending=True)
+                                        labels = [
+                                            symbol if symbol else gid
+                                            for symbol, gid in zip(plot_df["gene_symbol"], plot_df["gene_id"])
+                                        ]
+
+                                        col_plot, col_table = st.columns([2, 1], gap="small")
+                                        with col_plot:
+                                            fig, ax = plt.subplots(figsize=(plot_width, plot_height))
+                                            ax.barh(labels, plot_df["rank_value"], color="#C23B75")
+                                            ax.set_xlabel(x_label)
+                                            ax.set_title("Top genes")
+                                            ax.grid(axis="x", alpha=0.2)
+                                            st.pyplot(fig, use_container_width=True)
+                                            plt.close(fig)
+
+                                        with col_table:
+                                            table_df = plot_df.rename(columns={"log2FoldChange": "log2FC"}).copy()
+                                            display_cols = ["gene_symbol", "gene_id", "log2FC", "padj"]
+                                            if "tpm_mean" in table_df.columns:
+                                                display_cols.append("tpm_mean")
+                                            st.dataframe(
+                                                table_df[display_cols],
+                                                hide_index=True,
+                                                width="stretch",
+                                                height=table_height,
+                                            )
                     else:
-                        st.info("No base DEG datasets selected for volcano/expression plots.")
+                        st.info("No base DEG datasets selected for per-dataset plots.")
 
                     try:
                         import altair as alt
@@ -1925,84 +1997,6 @@ if summary_rows:
                             )
                         else:
                             st.info("Log2FC distribution unavailable at current cutoffs.")
-
-                with st.expander("Top genes (selected datasets)", expanded=False):
-                    if not plot_labels:
-                        st.info("No base DEG datasets selected for top-gene plots.")
-                    else:
-                        if missing_plot_labels:
-                            st.caption(
-                                "Top-gene plots are available only for base DEG tables; "
-                                "skipping: " + ", ".join(missing_plot_labels)
-                            )
-                        top_n = st.slider("Top N genes", min_value=5, max_value=50, value=20, step=5)
-                        rank_by = st.radio(
-                            "Rank by",
-                            ["log2FC", "-log10(padj)"],
-                            horizontal=True,
-                            key="top_gene_rank",
-                        )
-                        tab_labels = [label.split(" | ", 1)[-1] for label in plot_labels]
-                        tabs = st.tabs(tab_labels)
-                        for tab, label in zip(tabs, plot_labels):
-                            source = plot_sources[label]
-                            df = source["df"]
-                            species = source["species"]
-                            genes = source.get("genes", set())
-                            with tab:
-                                if not genes:
-                                    st.info("No genes available at current cutoffs for this dataset.")
-                                    continue
-                                subset = df[df["gene_id"].astype(str).isin(genes)].copy()
-                                subset["gene_id"] = subset["gene_id"].astype(str)
-                                subset["log2FoldChange"] = pd.to_numeric(
-                                    subset["log2FoldChange"], errors="coerce"
-                                )
-                                subset["padj"] = pd.to_numeric(subset["padj"], errors="coerce")
-                                subset = subset.dropna(subset=["log2FoldChange", "padj"])
-                                if subset.empty:
-                                    st.info("No genes available after filtering.")
-                                    continue
-                                symbol_map = human_symbol_map if species == "human" else mouse_symbol_map
-                                subset["gene_symbol"] = subset["gene_id"].map(
-                                    lambda gid: symbol_map.get(strip_version(gid), "")
-                                )
-
-                                if rank_by == "log2FC":
-                                    subset["rank_value"] = subset["log2FoldChange"]
-                                    x_label = "log2FoldChange"
-                                else:
-                                    subset["rank_value"] = -np.log10(subset["padj"].clip(lower=1e-300))
-                                    x_label = "-log10(padj)"
-
-                                subset = subset.sort_values("rank_value", ascending=False).head(top_n)
-                                plot_df = subset.sort_values("rank_value", ascending=True)
-                                labels = [
-                                    symbol if symbol else gid
-                                    for symbol, gid in zip(plot_df["gene_symbol"], plot_df["gene_id"])
-                                ]
-
-                                col_plot, col_table = st.columns([2, 1])
-                                with col_plot:
-                                    fig, ax = plt.subplots(figsize=(2.06, max(0.74, 0.08575 * len(plot_df))))
-                                    ax.barh(labels, plot_df["rank_value"], color="#C23B75")
-                                    ax.set_xlabel(x_label)
-                                    ax.set_title("Top genes")
-                                    ax.grid(axis="x", alpha=0.2)
-                                    st.pyplot(fig, use_container_width=True)
-                                    plt.close(fig)
-
-                                with col_table:
-                                    table_df = plot_df.rename(columns={"log2FoldChange": "log2FC"}).copy()
-                                    display_cols = ["gene_symbol", "gene_id", "log2FC", "padj"]
-                                    if "tpm_mean" in table_df.columns:
-                                        display_cols.append("tpm_mean")
-                                    st.dataframe(
-                                        table_df[display_cols],
-                                        hide_index=True,
-                                        width="stretch",
-                                        height=90,
-                                    )
 
             if BIOTYPE_PATH is None:
                 st.info("Biotype map not found; biotype breakdown is unavailable.")
