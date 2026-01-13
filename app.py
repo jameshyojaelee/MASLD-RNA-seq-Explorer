@@ -1818,6 +1818,9 @@ if summary_rows:
 
                                         with col_table:
                                             table_df = plot_df.rename(columns={"log2FoldChange": "log2FC"}).copy()
+                                            table_df["padj"] = table_df["padj"].map(
+                                                lambda x: f"{x:.2e}" if pd.notna(x) else ""
+                                            )
                                             display_cols = ["gene_symbol", "gene_id", "log2FC", "padj"]
                                             if "tpm_mean" in table_df.columns:
                                                 display_cols.append("tpm_mean")
