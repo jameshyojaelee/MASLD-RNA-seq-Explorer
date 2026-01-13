@@ -1984,7 +1984,7 @@ if summary_rows:
 
                                 col_plot, col_table = st.columns([2, 1])
                                 with col_plot:
-                                    fig, ax = plt.subplots(figsize=(6, max(1.5, 0.175 * len(plot_df))))
+                                    fig, ax = plt.subplots(figsize=(4.2, max(1.5, 0.175 * len(plot_df))))
                                     ax.barh(labels, plot_df["rank_value"], color="#C23B75")
                                     ax.set_xlabel(x_label)
                                     ax.set_title("Top genes")
