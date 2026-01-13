@@ -1984,7 +1984,7 @@ if summary_rows:
 
                                 col_plot, col_table = st.columns([2, 1])
                                 with col_plot:
-                                    fig, ax = plt.subplots(figsize=(2.94, max(1.05, 0.1225 * len(plot_df))))
+                                    fig, ax = plt.subplots(figsize=(2.06, max(0.74, 0.08575 * len(plot_df))))
                                     ax.barh(labels, plot_df["rank_value"], color="#C23B75")
                                     ax.set_xlabel(x_label)
                                     ax.set_title("Top genes")
@@ -2001,7 +2001,7 @@ if summary_rows:
                                         table_df[display_cols],
                                         hide_index=True,
                                         width="stretch",
-                                        height=130,
+                                        height=90,
                                     )
 
             if BIOTYPE_PATH is None:
