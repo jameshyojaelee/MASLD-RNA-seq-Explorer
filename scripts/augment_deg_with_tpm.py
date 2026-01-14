@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Add mean TPM (across all samples) to bundled DEG tables.
+"""Add mean TPM (disease-only samples) to bundled DEG tables.
 
 Computes TPM from featureCounts gene counts using gene lengths.
+For human cohorts, uses MASLD-only samples; for mouse, uses MCD-only samples.
 """
 from __future__ import annotations
 
@@ -76,6 +77,95 @@ def compute_tpm_mean(counts: pd.DataFrame, lengths: pd.Series) -> pd.Series:
     return tpm_mean
 
 
+def _normalize_sample_ids(sample_ids: list[str] | None) -> list[str]:
+    if not sample_ids:
+        return []
+    cleaned = [str(s).strip() for s in sample_ids if str(s).strip()]
+    return sorted(set(cleaned))
+
+
+def _featurecounts_sample_id(col: str) -> str:
+    path = Path(str(col))
+    name = path.name
+    if ".Aligned" in name:
+        return name.split(".Aligned", 1)[0]
+    parts = path.parts
+    if len(parts) >= 2:
+        return parts[-2]
+    return name.split(".", 1)[0]
+
+
+def _subset_featurecounts_counts(counts: pd.DataFrame, sample_ids: list[str]) -> pd.DataFrame:
+    sample_ids = _normalize_sample_ids(sample_ids)
+    if not sample_ids:
+        return counts
+    wanted = set(sample_ids)
+    selected = [col for col in counts.columns if _featurecounts_sample_id(col) in wanted]
+    if not selected:
+        return counts
+    return counts[selected]
+
+
+def _subset_counts_matrix(counts: pd.DataFrame, sample_ids: list[str]) -> pd.DataFrame:
+    sample_ids = _normalize_sample_ids(sample_ids)
+    if not sample_ids:
+        return counts
+    wanted = set(sample_ids)
+    selected = [col for col in counts.columns if col in wanted]
+    if not selected:
+        return counts
+    return counts[selected]
+
+
+def load_mcd_sample_ids(metadata_path: Path) -> list[str]:
+    if not metadata_path.exists():
+        return []
+    df = pd.read_csv(metadata_path, sep="\t")
+    if "sample_id" not in df.columns:
+        return []
+    if "diet" not in df.columns:
+        return df["sample_id"].astype(str).tolist()
+    mask = df["diet"].astype(str).str.contains("mcd", case=False, na=False)
+    if not mask.any():
+        return df["sample_id"].astype(str).tolist()
+    return df.loc[mask, "sample_id"].astype(str).tolist()
+
+
+def load_masld_sample_ids(dataset: str) -> list[str]:
+    samplesheet = (
+        REPO_ROOT
+        / "RNA-seq"
+        / "patient_RNAseq"
+        / "data"
+        / "samplesheets"
+        / f"{dataset}_samplesheet.csv"
+    )
+    if not samplesheet.exists():
+        return []
+    df = pd.read_csv(samplesheet)
+    if "sample" not in df.columns:
+        return []
+    if dataset == "GSE135251":
+        if "disease" in df.columns:
+            mask = df["disease"].astype(str).str.lower().ne("control")
+        elif "group_in_paper" in df.columns:
+            mask = df["group_in_paper"].astype(str).str.lower().ne("control")
+        else:
+            mask = pd.Series(True, index=df.index)
+    else:
+        if "nafld_activity_score" in df.columns:
+            score = pd.to_numeric(df["nafld_activity_score"], errors="coerce")
+            mask = score > 0
+            if not mask.any():
+                mask = pd.Series(True, index=df.index)
+        elif "steatosis_grade" in df.columns:
+            score = pd.to_numeric(df["steatosis_grade"], errors="coerce")
+            mask = score > 0
+        else:
+            mask = pd.Series(True, index=df.index)
+    return df.loc[mask, "sample"].astype(str).tolist()
+
+
 def add_tpm_column(path: Path, tpm_map: dict[str, float]) -> None:
     tpm_map_stripped = {strip_version(k): v for k, v in tpm_map.items()}
     sep = "\t" if path.name.endswith(".tsv.gz") else ","
@@ -98,27 +188,45 @@ def add_tpm_column(path: Path, tpm_map: dict[str, float]) -> None:
 def main() -> None:
     # In-house MCD TPM (mouse)
     inhouse_counts = REPO_ROOT / "RNA-seq" / "in-house_MCD_RNAseq" / "counts" / "featurecounts" / "gene_counts.txt"
+    inhouse_samples = load_mcd_sample_ids(
+        REPO_ROOT / "RNA-seq" / "in-house_MCD_RNAseq" / "metadata" / "samples.tsv"
+    )
     _, inhouse_lengths, inhouse_counts_df = read_featurecounts(inhouse_counts)
+    inhouse_counts_df = _subset_featurecounts_counts(inhouse_counts_df, inhouse_samples)
     inhouse_tpm = compute_tpm_mean(inhouse_counts_df, inhouse_lengths)
 
     # External MCD TPM (mouse)
     gse156918_counts = REPO_ROOT / "RNA-seq" / "other_MCD_RNAseq" / "GSE156918" / "counts" / "featurecounts" / "gene_counts.txt"
+    gse156918_samples = load_mcd_sample_ids(
+        REPO_ROOT / "RNA-seq" / "other_MCD_RNAseq" / "GSE156918" / "metadata" / "samples.tsv"
+    )
     _, gse156918_lengths, gse156918_counts_df = read_featurecounts(gse156918_counts)
+    gse156918_counts_df = _subset_featurecounts_counts(gse156918_counts_df, gse156918_samples)
     gse156918_tpm = compute_tpm_mean(gse156918_counts_df, gse156918_lengths)
 
     gse205974_counts = REPO_ROOT / "RNA-seq" / "other_MCD_RNAseq" / "GSE205974" / "counts" / "featurecounts" / "gene_counts.txt"
+    gse205974_samples = load_mcd_sample_ids(
+        REPO_ROOT / "RNA-seq" / "other_MCD_RNAseq" / "GSE205974" / "metadata" / "samples.tsv"
+    )
     _, gse205974_lengths, gse205974_counts_df = read_featurecounts(gse205974_counts)
+    gse205974_counts_df = _subset_featurecounts_counts(gse205974_counts_df, gse205974_samples)
     gse205974_tpm = compute_tpm_mean(gse205974_counts_df, gse205974_lengths)
 
     # Patient GSE TPM (human)
     gse130970_counts = REPO_ROOT / "RNA-seq" / "patient_RNAseq" / "results" / "GSE130970" / "counts" / "gene_counts_matrix.txt"
     gse130970_counts_df = read_gene_counts_matrix(gse130970_counts)
+    gse130970_samples = load_masld_sample_ids("GSE130970")
+    gse130970_counts_df = _subset_counts_matrix(gse130970_counts_df, gse130970_samples)
     gse130970_length_source = next((REPO_ROOT / "RNA-seq" / "patient_RNAseq" / "results" / "GSE130970" / "counts" / "individual").glob("*_counts.txt"))
     gse130970_lengths = read_gene_lengths_from_counts(gse130970_length_source)
     gse130970_tpm = compute_tpm_mean(gse130970_counts_df, gse130970_lengths)
 
-    gse135251_counts = REPO_ROOT / "RNA-seq" / "patient_RNAseq" / "results" / "GSE135251" / "counts" / "gene_counts_matrix.txt"
+    gse135251_counts = REPO_ROOT / "RNA-seq" / "patient_RNAseq" / "results" / "GSE135251" / "counts" / "final_count_matrix_all_216_samples.txt"
+    if not gse135251_counts.exists():
+        gse135251_counts = REPO_ROOT / "RNA-seq" / "patient_RNAseq" / "results" / "GSE135251" / "counts" / "gene_counts_matrix.txt"
     gse135251_counts_df = read_gene_counts_matrix(gse135251_counts)
+    gse135251_samples = load_masld_sample_ids("GSE135251")
+    gse135251_counts_df = _subset_counts_matrix(gse135251_counts_df, gse135251_samples)
     gse135251_length_source = next((REPO_ROOT / "RNA-seq" / "patient_RNAseq" / "results" / "GSE135251" / "counts" / "individual").glob("*_counts.txt"))
     gse135251_lengths = read_gene_lengths_from_counts(gse135251_length_source)
     gse135251_tpm = compute_tpm_mean(gse135251_counts_df, gse135251_lengths)

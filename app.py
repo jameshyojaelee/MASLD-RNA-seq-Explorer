@@ -153,14 +153,58 @@ GWAS_GENE_ANNOTATION_PATHS = [
 ]
 
 
-@st.cache_data(show_spinner=False)
-def find_latest_run(base_dir: Path) -> Path | None:
+def _latest_run_dir(base_dir: Path) -> Path | None:
     if not base_dir.exists():
         return None
     run_dirs = [p for p in base_dir.iterdir() if p.is_dir() and p.name[:1].isdigit()]
     if not run_dirs:
         return None
     return sorted(run_dirs, key=lambda p: p.name)[-1]
+
+
+def _latest_run_with_files(base_dir: Path, required: list[Path]) -> Path | None:
+    if not base_dir.exists():
+        return None
+    run_dirs = [p for p in base_dir.iterdir() if p.is_dir() and p.name[:1].isdigit()]
+    if not run_dirs:
+        return None
+    for run_dir in sorted(run_dirs, key=lambda p: p.name, reverse=True):
+        if all((run_dir / rel).exists() for rel in required):
+            return run_dir
+    return None
+
+
+@st.cache_data(show_spinner=False)
+def find_latest_run(base_dir: Path) -> Path | None:
+    return _latest_run_dir(base_dir)
+
+
+def _local_star_results_available() -> bool:
+    if not all(path.exists() for path in INHOUSE_MCD_PATHS.values()):
+        return False
+    if not all(path.exists() for path in EXTERNAL_MCD_PATHS.values()):
+        return False
+    for dataset in PATIENT_DATASETS:
+        base_dir = ROOT / "RNA-seq" / "patient_RNAseq" / "results" / dataset / "deseq2_results"
+        required = [
+            Path("nas_high/deseq2_results/NAS_4plus_vs_NAS_0/differential_expression.csv"),
+            Path("nas_low/deseq2_results/NAS_1to3_vs_NAS_0/differential_expression.csv"),
+            Path("fibrosis/deseq2_results/F1to4_vs_F0/differential_expression.csv"),
+        ]
+        latest = _latest_run_with_files(base_dir, required)
+        if latest is None:
+            return False
+    return True
+
+
+_force_bundled = os.environ.get("DEG_FORCE_BUNDLED", "").strip() == "1"
+_force_local = os.environ.get("DEG_FORCE_LOCAL", "").strip() == "1"
+if _force_local:
+    USE_BUNDLED_RESULTS = False
+else:
+    USE_BUNDLED_RESULTS = DATA_DIR is not None and (
+        _force_bundled or not _local_star_results_available()
+    )
 
 
 @st.cache_data(show_spinner=False)
@@ -749,19 +793,19 @@ def build_combo_table(
 
 
 def get_inhouse_mcd_paths() -> dict[str, Path]:
-    if DATA_DIR is None:
+    if not USE_BUNDLED_RESULTS:
         return INHOUSE_MCD_PATHS
     return {label: DATA_DIR / filename for label, filename in BUNDLED_INHOUSE_MCD_FILES.items()}
 
 
 def get_external_mcd_paths() -> dict[str, Path]:
-    if DATA_DIR is None:
+    if not USE_BUNDLED_RESULTS:
         return EXTERNAL_MCD_PATHS
     return {label: DATA_DIR / filename for label, filename in BUNDLED_EXTERNAL_MCD_FILES.items()}
 
 
 def patient_paths(dataset: str) -> dict[str, Path] | None:
-    if DATA_DIR is not None:
+    if USE_BUNDLED_RESULTS:
         files = BUNDLED_PATIENT_FILES.get(dataset)
         if not files:
             return None
@@ -772,26 +816,19 @@ def patient_paths(dataset: str) -> dict[str, Path] | None:
             "fibrosis": DATA_DIR / files["fibrosis"],
         }
     base_dir = ROOT / "RNA-seq" / "patient_RNAseq" / "results" / dataset / "deseq2_results"
-    latest = find_latest_run(base_dir)
+    required = [
+        Path("nas_high/deseq2_results/NAS_4plus_vs_NAS_0/differential_expression.csv"),
+        Path("nas_low/deseq2_results/NAS_1to3_vs_NAS_0/differential_expression.csv"),
+        Path("fibrosis/deseq2_results/F1to4_vs_F0/differential_expression.csv"),
+    ]
+    latest = _latest_run_with_files(base_dir, required)
     if latest is None:
         return None
     return {
         "run": latest,
-        "nas_high": latest
-        / "nas_high"
-        / "deseq2_results"
-        / "NAS_4plus_vs_NAS_0"
-        / "differential_expression.csv",
-        "nas_low": latest
-        / "nas_low"
-        / "deseq2_results"
-        / "NAS_1to3_vs_NAS_0"
-        / "differential_expression.csv",
-        "fibrosis": latest
-        / "fibrosis"
-        / "deseq2_results"
-        / "F1to4_vs_F0"
-        / "differential_expression.csv",
+        "nas_high": latest / required[0],
+        "nas_low": latest / required[1],
+        "fibrosis": latest / required[2],
     }
 
 
