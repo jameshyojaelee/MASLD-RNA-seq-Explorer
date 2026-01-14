@@ -2014,33 +2014,45 @@ if summary_rows:
                         )
                         tpm_rows = []
                         tpm_order = []
+                        def _extend_tpm_rows(label: str, tpm_map: dict[str, float] | None) -> bool:
+                            if not tpm_map:
+                                return False
+                            values = [float(v) for v in tpm_map.values() if pd.notna(v)]
+                            if not values:
+                                return False
+                            tpm_rows.extend({"dataset": label, "tpm": val} for val in values)
+                            tpm_order.append(label)
+                            return True
                         # In-house MCD (single dataset)
                         if inhouse_mcd_frames:
                             label = "MCD (in-house)"
-                            df = next(iter(inhouse_mcd_frames.values()))
-                            if "tpm_mean" in df.columns:
-                                tpm_rows.extend(
-                                    {"dataset": label, "tpm": float(val)} for val in df["tpm_mean"].dropna().values
-                                )
-                                tpm_order.append(label)
+                            if not _extend_tpm_rows(label, inhouse_tpm_map):
+                                df = next(iter(inhouse_mcd_frames.values()))
+                                if "tpm_mean" in df.columns:
+                                    tpm_rows.extend(
+                                        {"dataset": label, "tpm": float(val)} for val in df["tpm_mean"].dropna().values
+                                    )
+                                    tpm_order.append(label)
                         # External MCD (GSEs)
                         for label, df in external_mcd_frames.items():
                             short = label.split(" ")[0]
-                            if "tpm_mean" in df.columns:
-                                tpm_rows.extend(
-                                    {"dataset": short, "tpm": float(val)} for val in df["tpm_mean"].dropna().values
-                                )
-                                tpm_order.append(short)
+                            if not _extend_tpm_rows(short, external_tpm_maps.get(label)):
+                                if "tpm_mean" in df.columns:
+                                    tpm_rows.extend(
+                                        {"dataset": short, "tpm": float(val)} for val in df["tpm_mean"].dropna().values
+                                    )
+                                    tpm_order.append(short)
                         # Patient datasets (use NAS high table as representative)
                         for dataset, info in patient_data.items():
                             if info.get("error") or info.get("paths") is None:
                                 continue
-                            df = info["nas_high"]
-                            if "tpm_mean" in df.columns:
-                                tpm_rows.extend(
-                                    {"dataset": dataset, "tpm": float(val)} for val in df["tpm_mean"].dropna().values
-                                )
-                                tpm_order.append(dataset)
+                            if not _extend_tpm_rows(dataset, patient_tpm_maps.get(dataset)):
+                                df = info["nas_high"]
+                                if "tpm_mean" in df.columns:
+                                    tpm_rows.extend(
+                                        {"dataset": dataset, "tpm": float(val)} for val in df["tpm_mean"].dropna().values
+                                    )
+                                    tpm_order.append(dataset)
 
                         if tpm_rows:
                             tpm_df = pd.DataFrame(tpm_rows)
