@@ -1816,10 +1816,11 @@ if summary_rows:
                     missing_plot_labels = [label for label in active_labels if label not in plot_sources]
 
                 # ===== Distributions =====
-                with st.expander("Distributions", expanded=False):
+                with st.expander("Analysis plots", expanded=False):
                     plot_width = 5.2
                     plot_height = 3.2
                     table_height = 260
+                    selected_labels = set(active_labels)
 
                     if plot_labels:
                         st.markdown("**Per-dataset plots (volcano, expression, top genes)**")
@@ -2097,6 +2098,8 @@ if summary_rows:
                         log_order = []
                         # In-house MCD
                         for label, df in inhouse_mcd_frames.items():
+                            if make_label("MCD (in-house)", "mouse", label) not in selected_labels:
+                                continue
                             key = f"inhouse_mcd_{slugify(label)}"
                             padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
                             tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
@@ -2107,6 +2110,8 @@ if summary_rows:
                                 log_order.append(name)
                         # External MCD
                         for label, df in external_mcd_frames.items():
+                            if make_label("MCD (external)", "mouse", label) not in selected_labels:
+                                continue
                             key = f"external_mcd_{slugify(label)}"
                             padj_eff, lfc_eff = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
                             tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
@@ -2124,20 +2129,29 @@ if summary_rows:
                             top_padj = get_topright_padj(key, default_padj=padj_cutoff)
                             tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
 
-                            series = log2fc_series(info["nas_high"], nas_padj, tpm_eff, log2fc_cutoff=nas_lfc)
-                            if not series.empty:
-                                name = f"Patient | {dataset} NAS high"
-                                log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
-                                log_order.append(name)
+                            if make_label("Patient", dataset, "NAS high (upregulated)") in selected_labels:
+                                series = log2fc_series(info["nas_high"], nas_padj, tpm_eff, log2fc_cutoff=nas_lfc)
+                                if not series.empty:
+                                    name = f"Patient | {dataset} NAS high"
+                                    log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
+                                    log_order.append(name)
 
-                            series = log2fc_series(info["fibrosis"], nas_padj, tpm_eff, log2fc_cutoff=nas_lfc)
-                            if not series.empty:
-                                name = f"Patient | {dataset} Fibrosis (up)"
-                                log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
-                                log_order.append(name)
+                            if make_label("Patient", dataset, "Fibrosis (upregulated)") in selected_labels:
+                                series = log2fc_series(info["fibrosis"], nas_padj, tpm_eff, log2fc_cutoff=nas_lfc)
+                                if not series.empty:
+                                    name = f"Patient | {dataset} Fibrosis (up)"
+                                    log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
+                                    log_order.append(name)
 
                             for label, df in (("NAS low", info["nas_low"]), ("Fibrosis", info["fibrosis"])):
-                                series = log2fc_series(df, top_padj, tpm_eff, log2fc_cutoff=None)
+                                compare_label = (
+                                    "NAS high vs NAS low (top-right)"
+                                    if label == "NAS low"
+                                    else "NAS high vs Fibrosis (top-right)"
+                                )
+                                if make_label("Patient", dataset, compare_label) not in selected_labels:
+                                    continue
+                                series = log2fc_series(df, top_padj, tpm_eff, log2fc_cutoff=nas_lfc)
                                 if not series.empty:
                                     name = f"Patient | {dataset} {label}"
                                     log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
@@ -2160,53 +2174,50 @@ if summary_rows:
                             st.markdown("**Log2FC distribution (box/violin grid)**")
                             st.altair_chart(log_chart, use_container_width=True)
                             st.caption(
-                                "NAS-low and Fibrosis distributions use padj+TPM only (no log2FC cutoff), "
-                                "consistent with how top-right sets are defined."
+                                "All log2FC distributions apply padj+TPM+log2FC cutoffs for consistency."
                             )
                         else:
                             st.info("Log2FC distribution unavailable at current cutoffs.")
-
-            if BIOTYPE_PATH is None:
-                st.info("Biotype map not found; biotype breakdown is unavailable.")
-            else:
-                with st.expander("DEG biotype breakdown", expanded=False):
-                    if dedup_total == 0:
-                        st.info("No genes available for biotype breakdown at current cutoffs.")
-                    else:
-                        biotype_df = load_biotype_map(BIOTYPE_PATH)
-                        human_map = (
-                            biotype_df[biotype_df["species"] == "human"]
-                            .set_index("ensembl_gene_id")["gene_biotype"]
-                            .to_dict()
-                        )
-                        mouse_map = (
-                            biotype_df[biotype_df["species"] == "mouse"]
-                            .set_index("ensembl_gene_id")["gene_biotype"]
-                            .to_dict()
-                        )
-                        counts: dict[str, int] = {}
-                        for gid in union_genes:
-                            if gid.startswith("MOUSE:"):
-                                gid_norm = strip_version(gid.split("MOUSE:", 1)[1])
-                                biotype = mouse_map.get(gid_norm, "unknown_mouse")
-                            else:
-                                gid_norm = strip_version(gid)
-                                biotype = human_map.get(gid_norm, "unknown_human")
-                            counts[biotype] = counts.get(biotype, 0) + 1
-
-                        breakdown = (
-                            pd.DataFrame(
-                                [{"biotype": key, "count": value} for key, value in counts.items()]
+                        st.markdown("**DEG biotype breakdown**")
+                        if BIOTYPE_PATH is None:
+                            st.info("Biotype map not found; biotype breakdown is unavailable.")
+                        elif dedup_total == 0:
+                            st.info("No genes available for biotype breakdown at current cutoffs.")
+                        else:
+                            biotype_df = load_biotype_map(BIOTYPE_PATH)
+                            human_map = (
+                                biotype_df[biotype_df["species"] == "human"]
+                                .set_index("ensembl_gene_id")["gene_biotype"]
+                                .to_dict()
                             )
-                            .sort_values("count", ascending=False)
-                            .reset_index(drop=True)
-                        )
-                        if not breakdown.empty:
-                            breakdown["percent_of_total"] = breakdown["count"].map(
-                                lambda x: f"{(x / dedup_total):.2%}"
+                            mouse_map = (
+                                biotype_df[biotype_df["species"] == "mouse"]
+                                .set_index("ensembl_gene_id")["gene_biotype"]
+                                .to_dict()
                             )
-                        st.bar_chart(breakdown.set_index("biotype")["count"], width="stretch")
-                        render_table(breakdown)
+                            counts: dict[str, int] = {}
+                            for gid in union_genes:
+                                if gid.startswith("MOUSE:"):
+                                    gid_norm = strip_version(gid.split("MOUSE:", 1)[1])
+                                    biotype = mouse_map.get(gid_norm, "unknown_mouse")
+                                else:
+                                    gid_norm = strip_version(gid)
+                                    biotype = human_map.get(gid_norm, "unknown_human")
+                                counts[biotype] = counts.get(biotype, 0) + 1
+
+                            breakdown = (
+                                pd.DataFrame(
+                                    [{"biotype": key, "count": value} for key, value in counts.items()]
+                                )
+                                .sort_values("count", ascending=False)
+                                .reset_index(drop=True)
+                            )
+                            if not breakdown.empty:
+                                breakdown["percent_of_total"] = breakdown["count"].map(
+                                    lambda x: f"{(x / dedup_total):.2%}"
+                                )
+                            st.bar_chart(breakdown.set_index("biotype")["count"], width="stretch")
+                            render_table(breakdown)
                 with st.expander("Cross-species mapping summary", expanded=False):
                     mapping_rows = []
                     for label in selected_sets:
