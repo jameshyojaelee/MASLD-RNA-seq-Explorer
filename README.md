@@ -2,7 +2,8 @@
 
 Streamlit app to explore **upregulated** DEG counts across in-house MCD (mouse) and
 public GEO patient datasets (GSE130970, GSE135251), plus cross-dataset comparisons.
-Includes an optional **TPM cutoff** (mean TPM per dataset) when TPM columns are present.
+Includes an optional **TPM cutoff** using mean TPM per gene per dataset from
+disease-only samples (MASLD patients, MCD mice) when metadata is available.
 
 ## What’s in the app
 - Global padj/log2FC/TPM cutoffs with per-dataset overrides.
@@ -26,7 +27,8 @@ streamlit run app.py
 ## Data
 Bundled DEG tables live in `data/` (compressed), plus a mouse→human ortholog map
 used for cross-species de-duplication. A manifest is in `data/manifest.tsv`.
-Bundled tables may include a `tpm_mean` column (mean TPM across all samples in each dataset).
+Bundled tables may include a `tpm_mean` column (mean TPM per gene; the app computes
+disease-only means for MASLD patients and MCD mice when metadata is available).
 Bundled tables may include a `gene_symbol` column.
 If `data/Closest_genes.csv` exists, the GWAS set becomes available as a selectable human set
 based on liver disease GWAS SNPs and their closest genes.

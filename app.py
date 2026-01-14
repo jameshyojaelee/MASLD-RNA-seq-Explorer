@@ -348,6 +348,99 @@ def compute_tpm_mean(counts: pd.DataFrame, lengths: pd.Series) -> pd.Series:
     return tpm.mean(axis=1, skipna=True)
 
 
+def _normalize_sample_ids(sample_ids: Iterable[str] | None) -> tuple[str, ...] | None:
+    if not sample_ids:
+        return None
+    cleaned = [str(s).strip() for s in sample_ids if str(s).strip()]
+    if not cleaned:
+        return None
+    return tuple(sorted(set(cleaned)))
+
+
+def _featurecounts_sample_id(col: str) -> str:
+    path = Path(str(col))
+    name = path.name
+    if ".Aligned" in name:
+        return name.split(".Aligned", 1)[0]
+    parts = path.parts
+    if len(parts) >= 2:
+        return parts[-2]
+    return name.split(".", 1)[0]
+
+
+def _subset_featurecounts_counts(
+    counts: pd.DataFrame, sample_ids: Iterable[str] | None
+) -> pd.DataFrame:
+    sample_ids = _normalize_sample_ids(sample_ids)
+    if not sample_ids:
+        return counts
+    wanted = set(sample_ids)
+    selected = [col for col in counts.columns if _featurecounts_sample_id(col) in wanted]
+    if not selected:
+        return counts
+    return counts[selected]
+
+
+def _subset_counts_matrix(counts: pd.DataFrame, sample_ids: Iterable[str] | None) -> pd.DataFrame:
+    sample_ids = _normalize_sample_ids(sample_ids)
+    if not sample_ids:
+        return counts
+    wanted = set(sample_ids)
+    selected = [col for col in counts.columns if col in wanted]
+    if not selected:
+        return counts
+    return counts[selected]
+
+
+def load_mcd_sample_ids(metadata_path: Path) -> set[str]:
+    if not metadata_path.exists():
+        return set()
+    df = pd.read_csv(metadata_path, sep="\t")
+    if "sample_id" not in df.columns:
+        return set()
+    if "diet" not in df.columns:
+        return set(df["sample_id"].astype(str))
+    mask = df["diet"].astype(str).str.contains("mcd", case=False, na=False)
+    if not mask.any():
+        return set(df["sample_id"].astype(str))
+    return set(df.loc[mask, "sample_id"].astype(str))
+
+
+def load_masld_sample_ids(dataset: str) -> set[str]:
+    samplesheet = (
+        ROOT
+        / "RNA-seq"
+        / "patient_RNAseq"
+        / "data"
+        / "samplesheets"
+        / f"{dataset}_samplesheet.csv"
+    )
+    if not samplesheet.exists():
+        return set()
+    df = pd.read_csv(samplesheet)
+    if "sample" not in df.columns:
+        return set()
+    if dataset == "GSE135251":
+        if "disease" in df.columns:
+            mask = df["disease"].astype(str).str.lower().ne("control")
+        elif "group_in_paper" in df.columns:
+            mask = df["group_in_paper"].astype(str).str.lower().ne("control")
+        else:
+            mask = pd.Series(True, index=df.index)
+    else:
+        if "nafld_activity_score" in df.columns:
+            score = pd.to_numeric(df["nafld_activity_score"], errors="coerce")
+            mask = score > 0
+            if not mask.any():
+                mask = pd.Series(True, index=df.index)
+        elif "steatosis_grade" in df.columns:
+            score = pd.to_numeric(df["steatosis_grade"], errors="coerce")
+            mask = score > 0
+        else:
+            mask = pd.Series(True, index=df.index)
+    return set(df.loc[mask, "sample"].astype(str))
+
+
 def read_featurecounts_counts(path: Path) -> tuple[pd.Series, pd.DataFrame]:
     df = pd.read_csv(path, sep="\t", comment="#")
     cols = {c.lower(): c for c in df.columns}
@@ -370,22 +463,28 @@ def read_featurecounts_counts(path: Path) -> tuple[pd.Series, pd.DataFrame]:
 
 
 @st.cache_data(show_spinner=False)
-def load_tpm_map_from_featurecounts(path: Path) -> dict[str, float] | None:
+def load_tpm_map_from_featurecounts(
+    path: Path, sample_ids: Iterable[str] | None = None
+) -> dict[str, float] | None:
     if not path.exists():
         return None
     lengths, counts = read_featurecounts_counts(path)
+    counts = _subset_featurecounts_counts(counts, sample_ids)
     tpm = compute_tpm_mean(counts, lengths)
     return tpm.to_dict()
 
 
 @st.cache_data(show_spinner=False)
-def load_tpm_map_from_counts_matrix(counts_path: Path, length_source: Path) -> dict[str, float] | None:
+def load_tpm_map_from_counts_matrix(
+    counts_path: Path, length_source: Path, sample_ids: Iterable[str] | None = None
+) -> dict[str, float] | None:
     if not counts_path.exists() or not length_source.exists():
         return None
     counts_df = pd.read_csv(counts_path, sep="\t")
     gene_col = counts_df.columns[0]
     counts = counts_df.set_index(gene_col)
     counts = counts.apply(pd.to_numeric, errors="coerce")
+    counts = _subset_counts_matrix(counts, sample_ids)
 
     lengths_df = pd.read_csv(length_source, sep="\t", comment="#")
     cols = {c.lower(): c for c in lengths_df.columns}
@@ -904,7 +1003,7 @@ st.markdown(
 - **Patient (human)**: GEO datasets **GSE130970** and **GSE135251** (NAFLD/NASH/MASLD cohorts).
 - **GWAS (human, optional)**: liver disease GWAS SNPs with the closest genes to each SNP.
 - This app reports **upregulated DEGs only** (log2FC > cutoff) and lets you adjust padj/log2FC cutoffs globally or per-dataset.
-- TPM filtering uses **mean TPM across all samples within each dataset** (if available).
+- TPM filtering uses **mean TPM per gene from MASLD-only patients and MCD-only mice** (if available).
 - **Patient (cross-dataset)**: top-right quadrant overlaps using the global padj/log2FC cutoffs.
 
 **Citations / datasets**: GEO **GSE156918**, **GSE205974**, **GSE130970**, **GSE135251**, and in-house MCD RNA-seq (week 1–3 diet contrasts).
@@ -913,8 +1012,12 @@ st.markdown(
 
 # Load MCD data (in-house + external)
 inhouse_mcd_frames = {}
+inhouse_mcd_sample_ids = tuple(
+    sorted(load_mcd_sample_ids(ROOT / "RNA-seq" / "in-house_MCD_RNAseq" / "metadata" / "samples.tsv"))
+)
 inhouse_tpm_map = load_tpm_map_from_featurecounts(
-    ROOT / "RNA-seq" / "in-house_MCD_RNAseq" / "counts" / "featurecounts" / "gene_counts.txt"
+    ROOT / "RNA-seq" / "in-house_MCD_RNAseq" / "counts" / "featurecounts" / "gene_counts.txt",
+    sample_ids=inhouse_mcd_sample_ids,
 )
 for label, path in get_inhouse_mcd_paths().items():
     if not path.exists():
@@ -925,12 +1028,30 @@ for label, path in get_inhouse_mcd_paths().items():
     inhouse_mcd_frames[label] = df
 
 external_mcd_frames = {}
+external_mcd_sample_ids = {
+    "GSE156918 (external MCD)": tuple(
+        sorted(
+            load_mcd_sample_ids(
+                ROOT / "RNA-seq" / "other_MCD_RNAseq" / "GSE156918" / "metadata" / "samples.tsv"
+            )
+        )
+    ),
+    "GSE205974 (external MCD)": tuple(
+        sorted(
+            load_mcd_sample_ids(
+                ROOT / "RNA-seq" / "other_MCD_RNAseq" / "GSE205974" / "metadata" / "samples.tsv"
+            )
+        )
+    ),
+}
 external_tpm_maps: dict[str, dict[str, float] | None] = {
     "GSE156918 (external MCD)": load_tpm_map_from_featurecounts(
-        ROOT / "RNA-seq" / "other_MCD_RNAseq" / "GSE156918" / "counts" / "featurecounts" / "gene_counts.txt"
+        ROOT / "RNA-seq" / "other_MCD_RNAseq" / "GSE156918" / "counts" / "featurecounts" / "gene_counts.txt",
+        sample_ids=external_mcd_sample_ids.get("GSE156918 (external MCD)"),
     ),
     "GSE205974 (external MCD)": load_tpm_map_from_featurecounts(
-        ROOT / "RNA-seq" / "other_MCD_RNAseq" / "GSE205974" / "counts" / "featurecounts" / "gene_counts.txt"
+        ROOT / "RNA-seq" / "other_MCD_RNAseq" / "GSE205974" / "counts" / "featurecounts" / "gene_counts.txt",
+        sample_ids=external_mcd_sample_ids.get("GSE205974 (external MCD)"),
     ),
 }
 for label, path in get_external_mcd_paths().items():
@@ -947,14 +1068,21 @@ gse130970_counts = ROOT / "RNA-seq" / "patient_RNAseq" / "results" / "GSE130970"
 gse135251_counts = ROOT / "RNA-seq" / "patient_RNAseq" / "results" / "GSE135251" / "counts"
 gse130970_length_source = next(gse130970_counts.glob("individual/*_counts.txt"), None)
 gse135251_length_source = next(gse135251_counts.glob("individual/*_counts.txt"), None)
+patient_masld_sample_ids = {
+    dataset: tuple(sorted(load_masld_sample_ids(dataset))) for dataset in PATIENT_DATASETS
+}
 patient_tpm_maps: dict[str, dict[str, float] | None] = {
     "GSE130970": load_tpm_map_from_counts_matrix(
-        gse130970_counts / "gene_counts_matrix.txt", gse130970_length_source
+        gse130970_counts / "gene_counts_matrix.txt",
+        gse130970_length_source,
+        sample_ids=patient_masld_sample_ids.get("GSE130970"),
     )
     if gse130970_length_source
     else None,
     "GSE135251": load_tpm_map_from_counts_matrix(
-        gse135251_counts / "gene_counts_matrix.txt", gse135251_length_source
+        gse135251_counts / "gene_counts_matrix.txt",
+        gse135251_length_source,
+        sample_ids=patient_masld_sample_ids.get("GSE135251"),
     )
     if gse135251_length_source
     else None,
@@ -1124,7 +1252,7 @@ log2fc_cutoff = synced_cutoff(
     format_str="%.3f",
 )
 tpm_cutoff = synced_cutoff(
-    "Global TPM cutoff (mean TPM per dataset)",
+    "Global TPM cutoff (mean TPM per gene per dataset; disease-only samples)",
     0.0,
     float(tpm_slider_max),
     0.0,
@@ -1136,7 +1264,7 @@ tpm_cutoff = synced_cutoff(
 st.caption(
     "Within-dataset top-right uses a dataset-specific padj cutoff (defaults to the global padj unless overridden), "
     "and log2FC cutoff applies only to NAS high. Cross-dataset top-right uses the global padj/log2FC cutoffs. "
-    "TPM cutoff is applied to all sets where TPM data is available."
+    "TPM cutoff is applied to all sets where TPM data is available (mean TPM per gene uses MASLD-only patients and MCD-only mice when metadata is available)."
 )
 
 missing_tpm = []
@@ -1740,10 +1868,10 @@ if summary_rows:
                                         if expr_df.empty:
                                             st.info("Expression plot unavailable (no TPM values).")
                                         else:
-                                            expr_df["log10_tpm"] = np.log10(expr_df["tpm_mean"] + 1.0)
+                                            expr_df["log2_tpm"] = np.log2(expr_df["tpm_mean"] + 1.0)
                                             fig, ax = plt.subplots(figsize=(plot_width, plot_height))
                                             ax.scatter(
-                                                expr_df.loc[~expr_df["pass"], "log10_tpm"],
+                                                expr_df.loc[~expr_df["pass"], "log2_tpm"],
                                                 expr_df.loc[~expr_df["pass"], "log2FoldChange"],
                                                 s=8,
                                                 alpha=0.35,
@@ -1751,7 +1879,7 @@ if summary_rows:
                                                 label="Other",
                                             )
                                             ax.scatter(
-                                                expr_df.loc[expr_df["pass"], "log10_tpm"],
+                                                expr_df.loc[expr_df["pass"], "log2_tpm"],
                                                 expr_df.loc[expr_df["pass"], "log2FoldChange"],
                                                 s=10,
                                                 alpha=0.7,
@@ -1760,13 +1888,13 @@ if summary_rows:
                                             )
                                             if tpm_eff > 0:
                                                 ax.axvline(
-                                                    np.log10(tpm_eff + 1.0),
+                                                    np.log2(tpm_eff + 1.0),
                                                     color="#444444",
                                                     linestyle="--",
                                                     linewidth=1,
                                                 )
                                             ax.axhline(lfc_eff, color="#444444", linestyle="--", linewidth=1)
-                                            ax.set_xlabel("log10(TPM + 1)")
+                                            ax.set_xlabel("log2(TPM + 1)")
                                             ax.set_ylabel("log2FoldChange")
                                             ax.set_title("Expression vs log2FC")
                                             ax.legend(loc="upper right", fontsize=8)
@@ -1841,7 +1969,7 @@ if summary_rows:
                         # TPM ridgeline (per dataset)
                         tpm_view = st.radio(
                             "TPM view",
-                            ["Log10(TPM + 1)", "Linear (p99 clipped)"],
+                            ["Log2(TPM + 1)", "Linear (p99 clipped)"],
                             index=0,
                             horizontal=True,
                             key="tpm_ridge_view",
@@ -1878,9 +2006,9 @@ if summary_rows:
 
                         if tpm_rows:
                             tpm_df = pd.DataFrame(tpm_rows)
-                            if tpm_view == "Log10(TPM + 1)":
-                                tpm_df["tpm_plot"] = np.log10(tpm_df["tpm"] + 1.0)
-                                x_title = "log10(TPM + 1)"
+                            if tpm_view == "Log2(TPM + 1)":
+                                tpm_df["tpm_plot"] = np.log2(tpm_df["tpm"] + 1.0)
+                                x_title = "log2(TPM + 1)"
                             else:
                                 p99 = tpm_df["tpm"].quantile(0.99)
                                 tpm_df["tpm_plot"] = tpm_df["tpm"].clip(upper=p99)
