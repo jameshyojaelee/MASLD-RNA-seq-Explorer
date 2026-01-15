@@ -1733,18 +1733,53 @@ if summary_rows:
                     for gid in genes:
                         gene_to_sets.setdefault(gid, []).append(label)
                 rows = []
-                for gid in sorted(union_genes):
-                    if gid.startswith("MOUSE:"):
-                        raw_id = gid.split("MOUSE:", 1)[1]
-                        species = "mouse"
-                        symbol = mouse_symbol_map.get(strip_version(raw_id), "")
-                        biotype = mouse_biotype_map.get(strip_version(raw_id), "")
+                rows = []
+                is_strict_mode = (dedup_strategy == "Ensembl ID (Strict)")
+                for unit in sorted(union_genes):
+                    # unit is either an Ensembl ID or a Symbol (if Functional strategy used)
+                    
+                    # Logic to determine if 'unit' is an Ensembl ID
+                    # If strict mode: ALL are IDs.
+                    # If functional mode: IDs are those that failed mapping (start with ENS... or MOUSE:) 
+                    # while successful mappings are Symbols (e.g. "IL32", "Y_RNA").
+                    
+                    is_id_format = (
+                        unit.startswith("ENS") 
+                        or unit.startswith("MOUSE:") 
+                        or unit.startswith("TCONS") # rare but possible
+                        or (is_strict_mode) # In strict mode, everything is an ID
+                    )
+
+                    if is_id_format:
+                        gid = unit
+                        if gid.startswith("MOUSE:"):
+                            raw_id = gid.split("MOUSE:", 1)[1]
+                            species = "mouse"
+                            symbol = mouse_symbol_map.get(strip_version(raw_id), "")
+                            biotype = mouse_biotype_map.get(strip_version(raw_id), "")
+                        else:
+                            raw_id = gid
+                            species = "human"
+                            symbol = human_symbol_map.get(strip_version(raw_id), "")
+                            biotype = human_biotype_map.get(strip_version(raw_id), "")
                     else:
-                        raw_id = gid
-                        species = "human"
-                        symbol = human_symbol_map.get(strip_version(raw_id), "")
-                        biotype = human_biotype_map.get(strip_version(raw_id), "")
-                    analyses = gene_to_sets.get(gid, [])
+                        # unit is already a Symbol (Functional mode)
+                        species = "human" # Default assumption for symbol-only, or check context?
+                        # Actually, symbols are ambiguous for species if we don't track it, 
+                        # but here we mixed mouse/human symbols?
+                        # In the deduplication logic above:
+                        # "sym_map = human_symbol_map if species == 'human' else mouse_symbol_map"
+                        # We used consistent mapping.
+                        # For display, we can leave species ambiguous or inferred.
+                        gid = unit # The 'ID' of this merged entity is the symbol
+                        symbol = unit
+                        raw_id = unit
+                        biotype = "Merged/Functional"
+                        
+                        # Try to infer species/biotype from map reverse lookup? Too expensive.
+                        # Simplification: If it looks like a symbol, we treat it as a symbol key.
+                    
+                    analyses = gene_to_sets.get(unit, [])
                     rows.append(
                         {
                             "species": species,
