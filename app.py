@@ -297,7 +297,7 @@ def load_symbol_maps_from_bundled(data_dir: Path) -> tuple[dict[str, str], dict[
         except Exception:
             continue
         for gid, symbol in zip(df["gene_id"].astype(str), df["gene_symbol"].astype(str)):
-            if not symbol:
+            if not symbol or symbol == "nan":
                 continue
             gid_norm = strip_version(gid)
             if gid_norm.startswith("ENSG"):
