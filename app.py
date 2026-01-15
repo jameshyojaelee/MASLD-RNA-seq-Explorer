@@ -1657,16 +1657,10 @@ if summary_rows:
                 dedup_sets[label] = canonicalize_mouse_set(genes, mouse_to_human, include_unmapped)
         if dedup_sets and active_labels:
             selected_labels = [label for label in active_labels if label in dedup_sets]
-            combo_counts, selected_sets, union_genes = build_combo_counts(dedup_sets, selected_labels)
-            dedup_total = len(union_genes)
-            st.metric("Total DEGs (deduplicated across mouse+human)", dedup_total)
+            # combo_counts, selected_sets, union_genes = build_combo_counts(dedup_sets, selected_labels)
+            dedup_total = 1 # dummy placeholder to enter block
+
             if dedup_total:
-                human_symbol_map, mouse_symbol_map = load_symbol_maps_from_bundled(DATA_DIR)
-                if gwas_symbol_map:
-                    for gid, symbol in gwas_symbol_map.items():
-                        human_symbol_map.setdefault(strip_version(gid), symbol)
-                human_biotype_map = {}
-                mouse_biotype_map = {}
                 if BIOTYPE_PATH is not None and BIOTYPE_PATH.exists():
                     biotype_df = load_biotype_map(BIOTYPE_PATH)
                     human_biotype_map = (
@@ -1679,6 +1673,61 @@ if summary_rows:
                         .set_index("ensembl_gene_id")["gene_biotype"]
                         .to_dict()
                     )
+                
+                # Deduplication strategy selection
+                st.write("---")
+                col_strat, col_metric = st.columns([2, 2])
+                with col_strat:
+                    dedup_strategy = st.radio(
+                        "Deduplication Strategy",
+                        ["Ensembl ID (Strict)", "Gene Symbol (Functional)"],
+                        index=0,
+                        help="Ensembl ID preserves distinct loci (e.g. Y_RNA copies). Gene Symbol merges them."
+                    )
+                
+                # Apply strategy
+                human_symbol_map, mouse_symbol_map = load_symbol_maps_from_bundled(DATA_DIR)
+                if gwas_symbol_map:
+                    for gid, symbol in gwas_symbol_map.items():
+                        human_symbol_map.setdefault(strip_version(gid), symbol)
+                        
+                final_sets = {}
+                for label, genes in dedup_sets.items():
+                    # Genes are already canonicalized (version stripped) IDs
+                    if dedup_strategy == "Ensembl ID (Strict)":
+                        final_sets[label] = genes
+                    else:
+                        # Map to symbols
+                        mapped_genes = set()
+                        species = summary_sets[label]["species"]
+                        sym_map = human_symbol_map if species == "human" else mouse_symbol_map
+                        for gid in genes:
+                            # If mapped to a symbol, use it. Else keep ID.
+                            sym = sym_map.get(gid)
+                            if sym:
+                                mapped_genes.add(sym)
+                            else:
+                                mapped_genes.add(gid)
+                        final_sets[label] = mapped_genes
+
+                combo_counts, selected_sets, union_genes = build_combo_counts(final_sets, selected_labels)
+                dedup_total = len(union_genes)
+
+                with col_metric:
+                    st.metric(f"Total DEGs ({dedup_strategy})", dedup_total)
+
+                with st.expander("Detailed Counts & Overlaps"):
+                    st.write(f"**Union Size**: {dedup_total}")
+                    st.write("Individual Set Sizes (after filters):")
+                    total_raw_sum = 0
+                    for label in selected_labels:
+                        count = len(final_sets[label])
+                        total_raw_sum += count
+                        st.write(f"- **{label}**: {count}")
+                    
+                    overlap_diff = total_raw_sum - dedup_total
+                    st.info(f"Overlap Reduction: {overlap_diff} genes merged across datasets.")
+
                 gene_to_sets: dict[str, list[str]] = {}
                 for label, genes in selected_sets.items():
                     for gid in genes:
