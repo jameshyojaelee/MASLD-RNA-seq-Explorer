@@ -10,3 +10,4 @@ __pycache__/
 unmapped_mouse_genes_selected.txt
 unmapped_mouse_genes_selected.tsv
 filter_genes.R
+not_in_app.csv
