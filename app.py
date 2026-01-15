@@ -1271,12 +1271,12 @@ with col_human:
 
 # ===== Global Sliders + Inputs =====
 padj_cutoff = synced_cutoff(
-    "Global padj cutoff (MCD + NAS high)",
+    "Global padj cutoff (MCD + NAS high) (default 0.05)",
     0.0,
     0.2,
-    0.1,
+    0.05,
     0.005,
-    "global_padj",
+    "global_padj_005",
     format_str="%.4f",
 )
 log2fc_cutoff = synced_cutoff(
@@ -1377,7 +1377,7 @@ with st.expander("Dataset-specific overrides (Advanced)"):
                 with c3:
                     st.number_input(f"NAS high log2FC", 0.0, 10.0, log2fc_cutoff, 0.1, key=f"{key}_lfc")
                 with c4:
-                    st.number_input(f"Top-right global padj", 0.0, 1.0, 0.1, 0.005, key=f"{key}_top_padj")
+                    st.number_input(f"Top-right global padj", 0.0, 1.0, 0.05, 0.005, key=f"{key}_top_padj")
                 with c5:
                     st.number_input(f"TPM", 0.0, float(tpm_slider_max), tpm_cutoff, 0.1, key=f"{key}_tpm")
 
