@@ -86,7 +86,8 @@ def plot_barcode_heatmap(df):
     df["Total_Mag"] = df.apply(lambda r: sum([abs(r[f"{d}_lfc"]) for d in DATASETS if pd.notna(r[f"{d}_lfc"])]), axis=1)
     
     sub = df.sort_values(["Sig_Count", "Total_Mag"], ascending=[False, False]).head(100)
-        
+    print(f"Plotting Barcode for {len(sub)} genes...")
+    
     # Prepare Matrix (Genes as Index initially)
     matrix = pd.DataFrame(index=sub["Symbol"])
     for d in DATASETS:
@@ -102,8 +103,8 @@ def plot_barcode_heatmap(df):
     # Transpose: Datasets on Y-axis, Genes on X-axis
     matrix = matrix.T
     
-    # Wide figure for 100 genes on X-axis
-    plt.figure(figsize=(24, 5))
+    # Wide figure for 200 genes on X-axis (more compact now: 20 width)
+    plt.figure(figsize=(20, 3))
     
     # Custom CMP
     from matplotlib.colors import ListedColormap
@@ -123,11 +124,12 @@ def plot_barcode_heatmap(df):
                frameon=False, labelcolor=TEXT_COLOR)
     
     plt.title("Discordance Barcode: Top 100 Active Genes", fontsize=16, color=TEXT_COLOR, fontweight="bold", pad=20)
-    plt.xticks(color=TEXT_COLOR, rotation=90, fontsize=8) 
-    plt.yticks(color=TEXT_COLOR, rotation=0, fontsize=10)
+    plt.xticks(color=TEXT_COLOR, rotation=90, fontsize=6) 
+    plt.yticks(color=TEXT_COLOR, rotation=0, fontsize=6)
+    plt.tick_params(axis='y', pad=10) # Separate labels from plot
     
     plt.subplots_adjust(bottom=0.3, right=0.85) # Make room for x-labels and legend
-    plt.figtext(0.5, 0.02, NOTE_TEXT, ha="center", fontsize=10, color=TEXT_COLOR)
+    plt.figtext(0.95, 0.02, NOTE_TEXT, ha="right", fontsize=12, color=TEXT_COLOR)
     plt.savefig(f"{OUT_DIR}/contradiction_barcode.png", dpi=300, bbox_inches="tight")
     plt.close()
 
@@ -149,16 +151,17 @@ def plot_radar(df, candidates, title_text, filename):
     angles = [n / float(N) * 2 * pi for n in range(N)]
     angles += angles[:1]
     
-    plt.figure(figsize=(10, 10))
+    plt.figure(figsize=(6, 6))
     ax = plt.subplot(111, polar=True)
     
     ax.set_theta_offset(pi / 2)
     ax.set_theta_direction(-1)
     
-    plt.xticks(angles[:-1], categories, color=TEXT_COLOR, size=12)
+    plt.xticks(angles[:-1], categories, color=TEXT_COLOR, size=16)
+    ax.tick_params(axis='x', pad=30) # Push labels out
     
     ax.set_rlabel_position(0)
-    plt.yticks([-2, -1, 0, 1, 2], ["-2", "-1", "0", "+1", "+2"], color="grey", size=10)
+    plt.yticks([-2, -1, 0, 1, 2], ["-2", "-1", "0", "+1", "+2"], color="grey", size=12)
     plt.ylim(-3, 3)
     
     # Zero line
@@ -184,11 +187,11 @@ def plot_radar(df, candidates, title_text, filename):
         ax.plot(angles, values, linewidth=2, linestyle='solid', label=row["Symbol"], color=c)
         ax.fill(angles, values, color=c, alpha=0.1)
 
-    plt.title(f"Radial LFC Profile: {title_text}", size=20, color=TEXT_COLOR, y=1.1)
+    plt.title(f"Radial LFC Profile: {title_text}", size=24, color=TEXT_COLOR, y=1.2)
 
-    plt.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1), labelcolor=TEXT_COLOR)
+    plt.legend(loc='upper left', bbox_to_anchor=(1.1, 1.0), labelcolor=TEXT_COLOR, fontsize=12)
     
-    plt.figtext(0.5, 0.01, NOTE_TEXT, ha="center", fontsize=10, color=TEXT_COLOR)
+    plt.figtext(0.5, 0.01, NOTE_TEXT, ha="center", fontsize=12, color=TEXT_COLOR)
     plt.savefig(f"{OUT_DIR}/{filename}", dpi=300, bbox_inches="tight")
     plt.close()
 

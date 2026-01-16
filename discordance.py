@@ -142,12 +142,12 @@ def plot_barcode_heatmap(df, note_text):
         matrix[d] = col_data
     
     matrix = matrix.T
-    fig, ax = plt.subplots(figsize=(24, 5))
+    fig, ax = plt.subplots(figsize=(20, 3))
     
     from matplotlib.colors import ListedColormap
     cmap = ListedColormap([CYAN, GREY, MAGENTA])
     
-    sns.heatmap(matrix, cmap=cmap, cbar=False, linewidths=0.5, linecolor="white", square=True, ax=ax)
+    sns.heatmap(matrix, cmap=cmap, cbar=False, linewidths=0.5, linecolor="white", ax=ax, square=True)
     
     from matplotlib.patches import Patch
     legend_elements = [
@@ -159,9 +159,12 @@ def plot_barcode_heatmap(df, note_text):
                frameon=False, labelcolor=TEXT_COLOR)
     
     ax.set_title("Discordance Barcode: Top 100 Active Genes", fontsize=16, color=TEXT_COLOR, fontweight="bold", pad=20)
-    plt.setp(ax.get_xticklabels(), rotation=90, fontsize=8, color=TEXT_COLOR)
-    plt.setp(ax.get_yticklabels(), rotation=0, fontsize=10, color=TEXT_COLOR)
+    plt.setp(ax.get_xticklabels(), rotation=90, fontsize=6, color=TEXT_COLOR)
+    plt.setp(ax.get_yticklabels(), rotation=0, fontsize=6, color=TEXT_COLOR)
+    ax.tick_params(axis='y', pad=10)
+    
     plt.subplots_adjust(bottom=0.3, right=0.85)
+    fig.text(0.95, 0.02, note_text, ha="right", fontsize=12, color=TEXT_COLOR)
     return fig
 
 def plot_radar(df, candidates, title_text):
@@ -188,14 +191,15 @@ def plot_radar(df, candidates, title_text):
     angles = [n / float(N) * 2 * pi for n in range(N)]
     angles += angles[:1]
     
-    fig = plt.figure(figsize=(8, 8))
+    fig = plt.figure(figsize=(6, 6))
     ax = plt.subplot(111, polar=True)
     ax.set_theta_offset(pi / 2)
     ax.set_theta_direction(-1)
     
-    plt.xticks(angles[:-1], categories, color=TEXT_COLOR, size=10)
+    plt.xticks(angles[:-1], categories, color=TEXT_COLOR, size=16)
+    ax.tick_params(axis='x', pad=30)
     ax.set_rlabel_position(0)
-    plt.yticks([-2, -1, 0, 1, 2], ["-2", "-1", "0", "+1", "+2"], color="grey", size=8)
+    plt.yticks([-2, -1, 0, 1, 2], ["-2", "-1", "0", "+1", "+2"], color="grey", size=12)
     plt.ylim(-3, 3)
     
     values_zero = [0] * N
@@ -217,6 +221,6 @@ def plot_radar(df, candidates, title_text):
         ax.plot(angles, values, linewidth=2, linestyle='solid', label=row["Symbol"], color=c)
         ax.fill(angles, values, color=c, alpha=0.1)
 
-    plt.title(f"Radial LFC Profile: {title_text}", size=14, color=TEXT_COLOR, y=1.1)
-    plt.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1), labelcolor=TEXT_COLOR)
+    plt.title(f"Radial LFC Profile: {title_text}", size=24, color=TEXT_COLOR, y=1.2)
+    plt.legend(loc='upper left', bbox_to_anchor=(1.1, 1.0), labelcolor=TEXT_COLOR, fontsize=12)
     return fig
