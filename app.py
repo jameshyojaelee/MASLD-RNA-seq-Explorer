@@ -75,6 +75,10 @@ PATIENT_CROSS_COMPARISONS = {
     "NAS low": "nas_low",
     "Fibrosis": "fibrosis",
 }
+PATIENT_DISPLAY_NAMES = {
+    "GSE130970": "Hoang",
+    "GSE135251": "Govaere",
+}
 
 INHOUSE_MCD_WEEK_LABELS = {"MCD Week 1", "MCD Week 2", "MCD Week 3"}
 BUNDLED_INHOUSE_MCD_FILES = {
@@ -1039,13 +1043,13 @@ st.markdown(
 **Overview**
 - **Mouse (in-house MCD)**: Week 1/2/3 MCD vs control contrasts from the in-house MCD diet study.
 - **Mouse (external MCD GEO)**: **GSE156918** and **GSE205974** Control vs MCD contrasts.
-- **Patient (human)**: GEO datasets **GSE130970** and **GSE135251** (NAFLD/NASH/MASLD cohorts).
+- **Patient (human)**: **Hoang** (GSE130970) and **Govaere** (GSE135251) NAFLD/NASH/MASLD cohorts.
 - **GWAS (human, optional)**: liver disease GWAS SNPs with the closest genes to each SNP.
 - This app reports **upregulated DEGs only** (log2FC > cutoff) and lets you adjust padj/log2FC cutoffs globally or per-dataset.
 - TPM filtering uses **mean TPM per gene from MASLD-only patients and MCD-only mice** (if available).
 - **Patient (cross-dataset)**: top-right quadrant overlaps using the global padj/log2FC cutoffs.
 
-**Citations / datasets**: GEO **GSE156918**, **GSE205974**, **GSE130970**, **GSE135251**, and in-house MCD RNA-seq (week 1–3 diet contrasts).
+**Citations / datasets**: GEO **GSE156918**, **GSE205974**, **Hoang (GSE130970)**, **Govaere (GSE135251)**, and in-house MCD RNA-seq (week 1–3 diet contrasts).
 """
 )
 
@@ -1241,10 +1245,11 @@ with col_human:
     opts = []
     for dataset, info in patient_data.items():
         if not info.get("error") and info.get("paths"):
-            opts.append((f"{dataset} NAS High", make_label("Patient", dataset, "NAS high (upregulated)")))
-            opts.append((f"{dataset} Fibrosis", make_label("Patient", dataset, "Fibrosis (upregulated)")))
-            opts.append((f"{dataset} NAS High vs Fibrosis", make_label("Patient", dataset, "NAS high vs Fibrosis (top-right)")))
-            opts.append((f"{dataset} NAS High vs Low", make_label("Patient", dataset, "NAS high vs NAS low (top-right)")))
+            display_name = PATIENT_DISPLAY_NAMES.get(dataset, dataset)
+            opts.append((f"{display_name} NAS High", make_label("Patient", dataset, "NAS high (upregulated)")))
+            opts.append((f"{display_name} Fibrosis", make_label("Patient", dataset, "Fibrosis (upregulated)")))
+            opts.append((f"{display_name} NAS High vs Fibrosis", make_label("Patient", dataset, "NAS high vs Fibrosis (top-right)")))
+            opts.append((f"{display_name} NAS High vs Low", make_label("Patient", dataset, "NAS high vs NAS low (top-right)")))
     
     if opts:
         active_labels.extend(selection_component("Patient Cohorts", opts, "patient"))
@@ -1255,6 +1260,8 @@ with col_human:
     info_a = patient_data.get(pair_a)
     info_b = patient_data.get(pair_b)
     if info_a and info_b and not info_a.get("error") and not info_b.get("error") and info_a.get("paths") and info_b.get("paths"):
+        pair_a_display = PATIENT_DISPLAY_NAMES.get(pair_a, pair_a)
+        pair_b_display = PATIENT_DISPLAY_NAMES.get(pair_b, pair_b)
         for comp_label in PATIENT_CROSS_COMPARISONS:
              opts.append((f"{comp_label} (Cross-dataset)", make_label("Patient (cross-dataset)", f"{pair_a} vs {pair_b}", f"{comp_label} (top-right)")))
     
