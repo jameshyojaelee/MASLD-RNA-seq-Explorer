@@ -2450,5 +2450,57 @@ if summary_rows:
                     )
                 )
                 st.altair_chart(heatmap, use_container_width=True)
+
+st.divider()
+st.header("Discordance Analysis (Human vs. Mouse)")
+st.caption("Identify genes with contradictory expression profiles between Human and Mouse datasets (e.g., UP in Human, DOWN in Mouse).")
+
+master_path = APP_DIR / "master_ortholog_matrix.csv.gz"
+if master_path.exists():
+    @st.cache_data(show_spinner=False)
+    def load_master_matrix_cached():
+        return pd.read_csv(master_path)
+        
+    master_df = load_master_matrix_cached()
+    
+    with st.expander("Configuration & Filters for Discordance Analysis", expanded=True):
+        col_d1, col_d2, col_d3 = st.columns(3)
+        p_cut = col_d1.slider("P-value Cutoff (Adjusted)", 0.001, 0.5, 0.1, 0.001, key="disc_p")
+        lfc_cut = col_d2.slider("Log2 FC Magnitude Cutoff", 0.0, 3.0, 0.8, 0.1, key="disc_lfc")
+        tpm_cut = col_d3.slider("Min TPM Cutoff", 0.0, 10.0, 1.0, 0.5, key="disc_tpm")
+        
+        run_btn = st.button("Run Discordance Analysis", type="primary")
+
+    if run_btn:
+        with st.spinner("Analyzing Contradictions..."):
+            filtered_df = filter_master_matrix(master_df, p_cut, lfc_cut, tpm_cut)
+            
+            n_genes = len(filtered_df)
+            st.write(f"### Found {n_genes} contradictory genes")
+            
+            if n_genes > 0:
+                note = f"Cutoffs: padj < {p_cut}, |log2FC| > {lfc_cut}, TPM > {tpm_cut}"
+                
+                st.write("#### 1. Tug of War")
+                fig1 = plot_tug_of_war(filtered_df, note)
+                st.pyplot(fig1)
+                
+                st.write("#### 2. Discordance Barcode")
+                fig2 = plot_barcode_heatmap(filtered_df, note)
+                st.pyplot(fig2)
+                
+                st.write("#### 3. Radial Profiles")
+                col_r1, col_r2 = st.columns(2)
+                
+                cand1 = ["TYMP", "FASN", "TM7SF2", "ACSS2", "PPP1R3C"]
+                fig3a = plot_radar(filtered_df, cand1, "Human UP - Mouse DOWN")
+                col_r1.pyplot(fig3a)
+                
+                cand2 = ["BEX1", "ATF3", "CXCR4", "CCL2", "C5AR1"]
+                fig3b = plot_radar(filtered_df, cand2, "Human DOWN - Mouse UP")
+                col_r2.pyplot(fig3b)
+                
+                with st.expander("View Underlying Data"):
+                    st.dataframe(filtered_df.sort_values("Symbol"))
 else:
-    st.info("Summary data not available yet.")
+    st.info("Master Matrix for Discordance Analysis not found. Please run offline generation script.")
