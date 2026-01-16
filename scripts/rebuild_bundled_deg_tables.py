@@ -51,7 +51,7 @@ PATIENT_DATASETS = ("GSE130970", "GSE135251")
 REQUIRED_PATIENT_REL = [
     Path("nas_high/deseq2_results/NAS_4plus_vs_NAS_0/differential_expression.csv"),
     Path("nas_low/deseq2_results/NAS_1to3_vs_NAS_0/differential_expression.csv"),
-    Path("fibrosis/deseq2_results/F1to4_vs_F0/differential_expression.csv"),
+    Path("fibrosis_strict/deseq2_results/Fibrosis_vs_Healthy/differential_expression.csv"),
 ]
 
 

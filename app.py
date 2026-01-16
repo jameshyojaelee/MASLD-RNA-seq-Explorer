@@ -192,7 +192,7 @@ def _local_star_results_available() -> bool:
         required = [
             Path("nas_high/deseq2_results/NAS_4plus_vs_NAS_0/differential_expression.csv"),
             Path("nas_low/deseq2_results/NAS_1to3_vs_NAS_0/differential_expression.csv"),
-            Path("fibrosis/deseq2_results/F1to4_vs_F0/differential_expression.csv"),
+            Path("fibrosis_strict/deseq2_results/Fibrosis_vs_Healthy/differential_expression.csv"),
         ]
         latest = _latest_run_with_files(base_dir, required)
         if latest is None:
@@ -821,7 +821,7 @@ def patient_paths(dataset: str) -> dict[str, Path] | None:
     required = [
         Path("nas_high/deseq2_results/NAS_4plus_vs_NAS_0/differential_expression.csv"),
         Path("nas_low/deseq2_results/NAS_1to3_vs_NAS_0/differential_expression.csv"),
-        Path("fibrosis/deseq2_results/F1to4_vs_F0/differential_expression.csv"),
+        Path("fibrosis_strict/deseq2_results/Fibrosis_vs_Healthy/differential_expression.csv"),
     ]
     latest = _latest_run_with_files(base_dir, required)
     if latest is None:
