@@ -343,25 +343,24 @@ def load_gwas_closest_genes(
             raw = line.strip()
             if not raw:
                 continue
-            for part in raw.split("|"):
-                symbol = part.strip()
-                if not symbol:
-                    continue
-                if symbol.startswith("ENSG"):
-                    gid = strip_version(symbol)
-                    gene_ids.add(gid)
-                    id_to_symbol.setdefault(gid, symbol)
-                    continue
-                mapped = symbol_map.get(symbol)
-                if mapped:
-                    for gid in mapped:
-                        gid_norm = strip_version(gid)
-                        gene_ids.add(gid_norm)
-                        id_to_symbol.setdefault(gid_norm, symbol)
-                else:
-                    gene_ids.add(symbol)
-                    id_to_symbol.setdefault(symbol, symbol)
-                    unmapped.add(symbol)
+            symbol = raw
+            if not symbol:
+                continue
+            if symbol.startswith("ENSG"):
+                gid = strip_version(symbol)
+                gene_ids.add(gid)
+                id_to_symbol.setdefault(gid, symbol)
+                continue
+            mapped = symbol_map.get(symbol)
+            if mapped:
+                for gid in mapped:
+                    gid_norm = strip_version(gid)
+                    gene_ids.add(gid_norm)
+                    id_to_symbol.setdefault(gid_norm, symbol)
+            else:
+                gene_ids.add(symbol)
+                id_to_symbol.setdefault(symbol, symbol)
+                unmapped.add(symbol)
     return gene_ids, id_to_symbol, unmapped
 
 
