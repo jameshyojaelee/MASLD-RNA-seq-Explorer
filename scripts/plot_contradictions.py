@@ -87,10 +87,9 @@ def plot_barcode_heatmap(df):
     
     sub = df.sort_values(["Sig_Count", "Total_Mag"], ascending=[False, False]).head(100)
         
-    # Prepare Matrix
+    # Prepare Matrix (Genes as Index initially)
     matrix = pd.DataFrame(index=sub["Symbol"])
     for d in DATASETS:
-        # We want discrete values for heatmap: 1=UP, -1=DOWN, 0=NS
         col_data = []
         for _, r in sub.iterrows():
             s = r[f"Status_{d}"]
@@ -100,15 +99,18 @@ def plot_barcode_heatmap(df):
             col_data.append(val)
         matrix[d] = col_data
         
-    # Taller figure for 100 genes
-    plt.figure(figsize=(8, 20))
+    # Transpose: Datasets on Y-axis, Genes on X-axis
+    matrix = matrix.T
+    
+    # Wide figure for 100 genes on X-axis
+    plt.figure(figsize=(24, 5))
     
     # Custom CMP
     from matplotlib.colors import ListedColormap
     # -1: Cyan, 0: Grey, 1: Magenta
     cmap = ListedColormap([CYAN, GREY, MAGENTA])
     
-    ax = sns.heatmap(matrix, cmap=cmap, cbar=False, linewidths=0.5, linecolor="white")
+    ax = sns.heatmap(matrix, cmap=cmap, cbar=False, linewidths=0.5, linecolor="white", square=True)
     
     # Legend
     from matplotlib.patches import Patch
@@ -117,23 +119,22 @@ def plot_barcode_heatmap(df):
         Patch(facecolor=GREY, label='Not Significant'),
         Patch(facecolor=CYAN, label='Downregulated')
     ]
-    plt.legend(handles=legend_elements, loc='upper center', bbox_to_anchor=(0.5, 1.02), 
-               ncol=3, frameon=False, labelcolor=TEXT_COLOR)
+    plt.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1.01, 0.5), 
+               frameon=False, labelcolor=TEXT_COLOR)
     
-    plt.title("Discordance Barcode: Top 100 Active Genes", fontsize=16, color=MAGENTA, fontweight="bold", pad=40)
-    plt.yticks(color=TEXT_COLOR, fontsize=8) # Smaller font for many genes
-    plt.xticks(color=TEXT_COLOR, rotation=45)
+    plt.title("Discordance Barcode: Top 100 Active Genes", fontsize=16, color=MAGENTA, fontweight="bold", pad=20)
+    plt.xticks(color=TEXT_COLOR, rotation=90, fontsize=8) 
+    plt.yticks(color=TEXT_COLOR, rotation=0, fontsize=10)
     
-    plt.figtext(0.5, 0.01, NOTE_TEXT, ha="center", fontsize=10, color=TEXT_COLOR)
+    plt.subplots_adjust(bottom=0.3, right=0.85) # Make room for x-labels and legend
+    plt.figtext(0.5, 0.02, NOTE_TEXT, ha="center", fontsize=10, color=TEXT_COLOR)
     plt.savefig(f"{OUT_DIR}/contradiction_barcode.png", dpi=300, bbox_inches="tight")
     plt.close()
 
 # --- Plot 3: Radar/Spider Chart ---
-def plot_radar(df):
-    print("Generating Plot 3: Radar Chart...")
+def plot_radar(df, candidates, title_text, filename):
+    print(f"Generating Radar Chart: {title_text}...")
     
-    # Select specific genes with diverse patterns
-    candidates = ["TYMP", "FASN", "TM7SF2", "ACSS2", "PPP1R3C"] # Top Human UP / Mouse DOWN genes
     # Add one valid random if candidates missing
     existent = df[df["Symbol"].isin(candidates)]
     if len(existent) < 3:
@@ -150,8 +151,6 @@ def plot_radar(df):
     
     plt.figure(figsize=(10, 10))
     ax = plt.subplot(111, polar=True)
-    
-    # Let's set Center = -3, Outer = +3
     
     ax.set_theta_offset(pi / 2)
     ax.set_theta_direction(-1)
@@ -185,18 +184,27 @@ def plot_radar(df):
         ax.plot(angles, values, linewidth=2, linestyle='solid', label=row["Symbol"], color=c)
         ax.fill(angles, values, color=c, alpha=0.1)
 
-    plt.title("Radial LFC Profile of Discordant Genes", size=20, color=MAGENTA, y=1.1)
+    plt.title(f"Radial LFC Profile: {title_text}", size=20, color=MAGENTA, y=1.1)
+
     plt.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1), labelcolor=TEXT_COLOR)
     
     plt.figtext(0.5, 0.01, NOTE_TEXT, ha="center", fontsize=10, color=TEXT_COLOR)
-    plt.savefig(f"{OUT_DIR}/contradiction_radar.png", dpi=300, bbox_inches="tight")
+    plt.savefig(f"{OUT_DIR}/{filename}", dpi=300, bbox_inches="tight")
     plt.close()
 
 def main():
     df = load_data()
     plot_tug_of_war(df)
     plot_barcode_heatmap(df)
-    plot_radar(df)
+    
+    # Case 1: Human UP / Mouse DOWN
+    cand_1 = ["TYMP", "FASN", "TM7SF2", "ACSS2", "PPP1R3C"]
+    plot_radar(df, cand_1, "Human UP - Mouse DOWN", "contradiction_radar_human_up_mouse_down.png")
+    
+    # Case 2: Human DOWN / Mouse UP
+    cand_2 = ["BEX1", "ATF3", "CXCR4", "CCL2", "C5AR1"]
+    plot_radar(df, cand_2, "Human DOWN - Mouse UP", "contradiction_radar_human_down_mouse_up.png")
+    
     print("Done generating plots.")
 
 if __name__ == "__main__":
