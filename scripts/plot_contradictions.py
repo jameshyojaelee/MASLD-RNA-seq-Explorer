@@ -48,7 +48,7 @@ def plot_tug_of_war(df):
     
     # Labels
     plt.title("Tug of War: Cumulative Upregulation vs Downregulation", 
-              fontsize=16, color=MAGENTA, fontweight="bold", pad=20)
+              fontsize=16, color=TEXT_COLOR, fontweight="bold", pad=20)
     plt.xlabel("Sum of Significant Positive LFCs (Pro-Target strength)", fontsize=12, color=TEXT_COLOR)
     plt.ylabel("Sum of Significant Negative LFCs (Anti-Target strength)", fontsize=12, color=TEXT_COLOR)
     
@@ -122,7 +122,7 @@ def plot_barcode_heatmap(df):
     plt.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1.01, 0.5), 
                frameon=False, labelcolor=TEXT_COLOR)
     
-    plt.title("Discordance Barcode: Top 100 Active Genes", fontsize=16, color=MAGENTA, fontweight="bold", pad=20)
+    plt.title("Discordance Barcode: Top 100 Active Genes", fontsize=16, color=TEXT_COLOR, fontweight="bold", pad=20)
     plt.xticks(color=TEXT_COLOR, rotation=90, fontsize=8) 
     plt.yticks(color=TEXT_COLOR, rotation=0, fontsize=10)
     
@@ -184,7 +184,7 @@ def plot_radar(df, candidates, title_text, filename):
         ax.plot(angles, values, linewidth=2, linestyle='solid', label=row["Symbol"], color=c)
         ax.fill(angles, values, color=c, alpha=0.1)
 
-    plt.title(f"Radial LFC Profile: {title_text}", size=20, color=MAGENTA, y=1.1)
+    plt.title(f"Radial LFC Profile: {title_text}", size=20, color=TEXT_COLOR, y=1.1)
 
     plt.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1), labelcolor=TEXT_COLOR)
     
