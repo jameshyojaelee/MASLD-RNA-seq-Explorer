@@ -34,11 +34,7 @@ def get_status(row, prefix, padj_cut, lfc_cut, tpm_cut):
     except KeyError:
         return "NS"
 
-def filter_master_matrix(df, padj_cut, lfc_cut, tpm_cut):
-    # Vectorized check for speed? Or just apply.
-    # Apply is 38k rows x 5 datasets ~ 200k checks. Should be fast enough (<1s).
-    # Let's use apply for simplicity first.
-    
+def annotate_discordance_status(df, padj_cut, lfc_cut, tpm_cut):
     # We need to add "Status_Dataset" columns dynamically
     df_out = df.copy()
     for d in DATASETS:
@@ -59,6 +55,11 @@ def filter_master_matrix(df, padj_cut, lfc_cut, tpm_cut):
         # Set DOWN
         down_mask = sig_mask & (df_out[f"{d}_lfc"] < 0)
         df_out.loc[down_mask, f"Status_{d}"] = "DOWN"
+        
+    return df_out
+
+def filter_master_matrix(df, padj_cut, lfc_cut, tpm_cut):
+    df_out = annotate_discordance_status(df, padj_cut, lfc_cut, tpm_cut)
         
     # Check Contradiction
     # A gene is contradictory if it has at least one UP and at least one DOWN
