@@ -89,6 +89,41 @@ def main():
     plots_dir = PARENT_DIR / "plots"
     plots_dir.mkdir(exist_ok=True)
     
+    # --- Generate Original Contradiction Plots ---
+    # Filter for Contradictory genes only
+    contradictory_df = df_annot[df_annot["Category"] == "Contradictory"].copy()
+    
+    if not contradictory_df.empty:
+        note_text = f"Cutoffs: padj < {PADJ_CUT}, |log2FC| > {LFC_CUT}, TPM > {TPM_CUT}"
+        
+        # 4. Tug of War
+        fig1 = plot_tug_of_war(contradictory_df, note_text)
+        fig1.savefig(plots_dir / "contradiction_tug_of_war.png", dpi=300, bbox_inches="tight")
+        fig1.savefig(plots_dir / "contradiction_tug_of_war.pdf", format="pdf", bbox_inches="tight")
+        plt.close(fig1)
+
+        # 5. Barcode Heatmap
+        fig2 = plot_barcode_heatmap(contradictory_df, note_text)
+        fig2.savefig(plots_dir / "contradiction_barcode.png", dpi=300, bbox_inches="tight")
+        fig2.savefig(plots_dir / "contradiction_barcode.pdf", format="pdf", bbox_inches="tight")
+        plt.close(fig2)
+
+        # 6. Radial Profiles (Human UP - Mouse DOWN)
+        cand1 = ["TYMP", "FASN", "TM7SF2", "ACSS2", "PPP1R3C"]
+        fig3a = plot_radar(contradictory_df, cand1, "Human UP - Mouse DOWN")
+        fig3a.savefig(plots_dir / "contradiction_radar_human_up_mouse_down.png", dpi=300, bbox_inches="tight")
+        fig3a.savefig(plots_dir / "contradiction_radar_human_up_mouse_down.pdf", format="pdf", bbox_inches="tight")
+        plt.close(fig3a)
+
+        # 7. Radial Profiles (Human DOWN - Mouse UP)
+        cand2 = ["BEX1", "ATF3", "CXCR4", "CCL2", "C5AR1"]
+        fig3b = plot_radar(contradictory_df, cand2, "Human DOWN - Mouse UP")
+        fig3b.savefig(plots_dir / "contradiction_radar_human_down_mouse_up.png", dpi=300, bbox_inches="tight")
+        fig3b.savefig(plots_dir / "contradiction_radar_human_down_mouse_up.pdf", format="pdf", bbox_inches="tight")
+        plt.close(fig3b)
+    
+    # --- Generate Cumulative Plots ---
+    
     sns.set_context("paper", font_scale=1.4) # Increase global font scale
     
     # 1. Violin Plot of Net Cumulative LFC
@@ -101,6 +136,7 @@ def main():
     plt.xticks(fontsize=14)
     plt.yticks(fontsize=14)
     plt.savefig(plots_dir / "cumulative_lfc_violin.png", dpi=300, bbox_inches="tight")
+    plt.savefig(plots_dir / "cumulative_lfc_violin.pdf", format="pdf", bbox_inches="tight")
     plt.close()
     
     # 2. KDE Plot of Net Cumulative LFC
@@ -112,8 +148,8 @@ def main():
     plt.ylabel("Density", fontsize=16)
     plt.xticks(fontsize=14)
     plt.yticks(fontsize=14)
-    # Fix legend fontsize if needed, but font_scale should handle it
     plt.savefig(plots_dir / "cumulative_lfc_density.png", dpi=300, bbox_inches="tight")
+    plt.savefig(plots_dir / "cumulative_lfc_density.pdf", format="pdf", bbox_inches="tight")
     plt.close()
 
     # 3. Scatter: Net vs Abs (The "Bowtie" or "V" plot)
@@ -126,6 +162,7 @@ def main():
     plt.yticks(fontsize=14)
     plt.legend(title="Category", title_fontsize=16, fontsize=14)
     plt.savefig(plots_dir / "cumulative_abs_vs_net_lfc.png", dpi=300, bbox_inches="tight")
+    plt.savefig(plots_dir / "cumulative_abs_vs_net_lfc.pdf", format="pdf", bbox_inches="tight")
     plt.close()
 
     print(f"Plots saved to {plots_dir}")

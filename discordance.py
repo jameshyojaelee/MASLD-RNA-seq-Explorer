@@ -100,9 +100,11 @@ def plot_tug_of_war(df, note_text):
                 c=MAGENTA, alpha=0.6, edgecolors=TEXT_COLOR, s=60, linewidths=0.5)
     
     ax.set_title("Tug of War: Cumulative Upregulation vs Downregulation", 
-              fontsize=16, color=TEXT_COLOR, fontweight="bold", pad=20)
-    ax.set_xlabel("Sum of Significant Positive LFCs (Pro-Target strength)", fontsize=12, color=TEXT_COLOR)
-    ax.set_ylabel("Sum of Significant Negative LFCs (Anti-Target strength)", fontsize=12, color=TEXT_COLOR)
+              fontsize=20, color=TEXT_COLOR, fontweight="bold", pad=20)
+    ax.set_xlabel("Sum of Significant Positive LFCs (Pro-Target strength)", fontsize=16, color=TEXT_COLOR)
+    ax.set_ylabel("Sum of Significant Negative LFCs (Anti-Target strength)", fontsize=16, color=TEXT_COLOR)
+    
+    ax.tick_params(axis='both', which='major', labelsize=14)
     
     max_val = max(df["Pos_Score"].max(), df["Neg_Score"].max()) if not df.empty else 1
     ax.plot([0, max_val], [0, max_val], color="black", linestyle="--", linewidth=1)
@@ -112,7 +114,7 @@ def plot_tug_of_war(df, note_text):
     top_conflict = df[df["Pos_Score"] > 0.5].sort_values("Total_Mag", ascending=False).head(45)
     
     for _, row in top_conflict.iterrows():
-        ax.text(row["Pos_Score"]+0.05, row["Neg_Score"]+0.05, row["Symbol"], color=TEXT_COLOR, fontsize=7)
+        ax.text(row["Pos_Score"]+0.05, row["Neg_Score"]+0.05, row["Symbol"], color=TEXT_COLOR, fontsize=10)
 
     ax.grid(True, linestyle=":", color=GREY, alpha=0.5)
     plt.tight_layout()
@@ -159,9 +161,9 @@ def plot_barcode_heatmap(df, note_text):
     ax.legend(handles=legend_elements, loc='center left', bbox_to_anchor=(1.01, 0.5), 
                frameon=False, labelcolor=TEXT_COLOR)
     
-    ax.set_title("Discordance Barcode: Top 100 Active Genes", fontsize=16, color=TEXT_COLOR, fontweight="bold", pad=20)
-    plt.setp(ax.get_xticklabels(), rotation=90, fontsize=6, color=TEXT_COLOR)
-    plt.setp(ax.get_yticklabels(), rotation=0, fontsize=6, color=TEXT_COLOR)
+    ax.set_title("Discordance Barcode: Top 100 Active Genes", fontsize=20, color=TEXT_COLOR, fontweight="bold", pad=20)
+    plt.setp(ax.get_xticklabels(), rotation=90, fontsize=10, color=TEXT_COLOR)
+    plt.setp(ax.get_yticklabels(), rotation=0, fontsize=12, color=TEXT_COLOR)
     ax.tick_params(axis='y', pad=10)
     
     plt.subplots_adjust(bottom=0.3, right=0.85)
@@ -200,7 +202,7 @@ def plot_radar(df, candidates, title_text):
     plt.xticks(angles[:-1], categories, color=TEXT_COLOR, size=16)
     ax.tick_params(axis='x', pad=30)
     ax.set_rlabel_position(0)
-    plt.yticks([-2, -1, 0, 1, 2], ["-2", "-1", "0", "+1", "+2"], color="grey", size=12)
+    plt.yticks([-2, -1, 0, 1, 2], ["-2", "-1", "0", "+1", "+2"], color="grey", size=14)
     plt.ylim(-3, 3)
     
     values_zero = [0] * N
