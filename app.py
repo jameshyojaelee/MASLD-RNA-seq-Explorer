@@ -1223,9 +1223,6 @@ with col_mouse:
         short = label.replace("MCD ", "")
         opts.append((short, make_label("MCD (in-house)", "mouse", label)))
     
-    if any(l in inhouse_mcd_frames for l in INHOUSE_MCD_WEEK_LABELS):
-        opts.append(("Week 1/2/3 Intersection", make_label("MCD (in-house)", "mouse", "MCD Week1/2/3 Intersection")))
-    
     if opts:
         active_labels.extend(selection_component("In-house MCD", opts, "inhouse"))
 
@@ -1248,25 +1245,9 @@ with col_human:
             display_name = PATIENT_DISPLAY_NAMES.get(dataset, dataset)
             opts.append((f"{display_name} NAS High", make_label("Patient", dataset, "NAS high (upregulated)")))
             opts.append((f"{display_name} Fibrosis", make_label("Patient", dataset, "Fibrosis (upregulated)")))
-            opts.append((f"{display_name} NAS High vs Fibrosis", make_label("Patient", dataset, "NAS high vs Fibrosis (top-right)")))
-            opts.append((f"{display_name} NAS High vs Low", make_label("Patient", dataset, "NAS high vs NAS low (top-right)")))
     
     if opts:
         active_labels.extend(selection_component("Patient Cohorts", opts, "patient"))
-
-    # Cross-dataset
-    opts = []
-    pair_a, pair_b = PATIENT_CROSS_DATASET_PAIR
-    info_a = patient_data.get(pair_a)
-    info_b = patient_data.get(pair_b)
-    if info_a and info_b and not info_a.get("error") and not info_b.get("error") and info_a.get("paths") and info_b.get("paths"):
-        pair_a_display = PATIENT_DISPLAY_NAMES.get(pair_a, pair_a)
-        pair_b_display = PATIENT_DISPLAY_NAMES.get(pair_b, pair_b)
-        for comp_label in PATIENT_CROSS_COMPARISONS:
-             opts.append((f"{comp_label} (Cross-dataset)", make_label("Patient (cross-dataset)", f"{pair_a} vs {pair_b}", f"{comp_label} (top-right)")))
-    
-    if opts:
-        active_labels.extend(selection_component("Cross-dataset", opts, "cross"))
 
     # GWAS
     if gwas_genes and gwas_label is not None:
@@ -1280,10 +1261,10 @@ with col_human:
 
 # ===== Global Sliders + Inputs =====
 padj_cutoff = synced_cutoff(
-    "Global padj cutoff (MCD + NAS high) (default 0.05)",
+    "Global padj cutoff (MCD + NAS high) (default 0.1)",
     0.0,
     0.2,
-    0.05,
+    0.1,
     0.005,
     "global_padj_005",
     format_str="%.4f",
@@ -1292,7 +1273,7 @@ log2fc_cutoff = synced_cutoff(
     "Global log2FC cutoff (upregulated only)",
     0.0,
     5.0,
-    0.0,
+    0.8,
     0.1,
     "global_log2fc",
     format_str="%.3f",
@@ -1301,7 +1282,7 @@ tpm_cutoff = synced_cutoff(
     "Global TPM cutoff (mean TPM per gene per dataset; disease-only samples)",
     0.0,
     float(tpm_slider_max),
-    0.0,
+    1.0,
     0.1,
     "global_tpm",
     format_str="%.2f",
