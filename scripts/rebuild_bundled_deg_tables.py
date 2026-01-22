@@ -60,6 +60,11 @@ EXTERNAL_FEATURECOUNTS = {
 }
 
 PATIENT_DATASETS = ("GSE130970", "GSE135251")
+
+FORCE_RUN_IDS = {
+    "GSE135251": "20260122_091723_corrected",
+}
+
 REQUIRED_PATIENT_REL = [
     Path("nas_high/deseq2_results/NAS_4plus_vs_NAS_0/differential_expression.csv"),
     Path("nas_low/deseq2_results/NAS_1to3_vs_NAS_0/differential_expression.csv"),
@@ -118,15 +123,51 @@ def load_tpm_map_from_featurecounts(path: Path) -> dict[str, float]:
     return {strip_version(k): v for k, v in tpm.to_dict().items()}
 
 
-def load_tpm_map_from_counts_matrix(counts_path: Path, length_source: Path) -> dict[str, float]:
-    """Load TPM map from count matrix + length source."""
+def load_tpm_map_from_counts_matrix(counts_path: Path, length_source: Path, metadata_path: Path | None = None) -> dict[str, float]:
+    """Load TPM map from count matrix + length source, optionally filtering for disease samples."""
     if not counts_path.exists() or not length_source.exists():
         print(f"  Warning: counts or length file not found: {counts_path}, {length_source}")
         return {}
+    
     counts_df = pd.read_csv(counts_path, sep="\t")
     gene_col = counts_df.columns[0]
     counts = counts_df.set_index(gene_col)
     counts = counts.apply(pd.to_numeric, errors="coerce")
+
+    # Filter for disease samples if metadata provided
+    if metadata_path and metadata_path.exists():
+        try:
+            meta = pd.read_csv(metadata_path)
+            # Identify disease samples based on known columns
+            disease_samples = []
+            
+            # GSE135251 logic: disease == 'NAFLD'
+            if "disease" in meta.columns:
+                 disease_samples = meta[meta["disease"] == "NAFLD"]["sample"].astype(str).tolist()
+            
+            # GSE130970 logic: exclude healthy (F0 and low NAS?) or just use everything not explicitly control?
+            # Looking at the file, there is no explicit 'group' column, but we can infer.
+            # Let's assume 'Healthy' is 0 fibrosis AND 0 NAS? Or is there a control definition?
+            # Actually for GSE130970, let's include all for now unless we can clearly Identify healthy.
+            # Wait, 130970 usually has 'Healthy' controls.
+            # Let's use a heuristic: if 'fibrosis_stage' and 'nafld_activity_score' exist.
+            elif "fibrosis_stage" in meta.columns and "nafld_activity_score" in meta.columns:
+                 # Exclude samples with F0 and NAS=0 (likely healthy)
+                 # Or just take everything?
+                 # User said "disease sample only".
+                 # Let's filter out rows where fibrosis_stage==0 AND nafld_activity_score==0
+                 disease_samples = meta[~((meta["fibrosis_stage"] == 0) & (meta["nafld_activity_score"] == 0))]["sample"].astype(str).tolist()
+            
+            if disease_samples:
+                print(f"    Filtering for {len(disease_samples)} disease samples...")
+                # Intersect with counts columns
+                valid_samples = [c for c in counts.columns if c in disease_samples]
+                if valid_samples:
+                    counts = counts[valid_samples]
+                else:
+                    print("    Warning: No matching disease samples found in counts matrix columns.")
+        except Exception as e:
+            print(f"    Warning: Failed to process metadata for filtering: {e}")
 
     lengths_df = pd.read_csv(length_source, sep="\t", comment="#")
     cols = {c.lower(): c for c in lengths_df.columns}
@@ -175,6 +216,25 @@ def write_mouse_table(src: Path, dest: Path, tpm_map: dict[str, float]) -> None:
 
 def write_patient_table(src: Path, dest: Path, tpm_map: dict[str, float]) -> None:
     df = pd.read_csv(src)
+    
+    # Handle case where gene_id is in index (results from raw DESeq2)
+    # Common R write.csv output has empty first header cell -> "Unnamed: 0" in pandas
+    if "Unnamed: 0" in df.columns:
+         df = df.rename(columns={"Unnamed: 0": "gene_id"})
+    elif "gene_id" not in df.columns and df.index.name is None and df.columns[0] != "gene_id":
+        # Check if index is the ID (only if not Unnamed: 0)
+        if "baseMean" in df.columns:
+             # Assume index is gene_id
+             df.index.name = "gene_id"
+             df = df.reset_index()
+
+    # Handle missing gene_symbol
+    if "gene_symbol" not in df.columns:
+        if "gene_id" in df.columns:
+            df["gene_symbol"] = df["gene_id"] # Fallback
+        else:
+             print(f"    Warning: Could not infer gene_id for {src.name} (Cols: {list(df.columns)})")
+
     required = ["gene_id", "gene_symbol", "log2FoldChange", "padj"]
     missing = [col for col in required if col not in df.columns]
     if missing:
@@ -222,16 +282,35 @@ def main() -> None:
             / "deseq2_results"
         )
         run_dir = latest_run_with_files(base_dir, REQUIRED_PATIENT_REL)
+        
+        # Override if specific run requested
+        if dataset in FORCE_RUN_IDS:
+             forced_path = base_dir / FORCE_RUN_IDS[dataset]
+             if forced_path.exists() and all((forced_path / rel).exists() for rel in REQUIRED_PATIENT_REL):
+                 print(f"    [OVERRIDE] Using forced run: {forced_path.name}")
+                 run_dir = forced_path
+             else:
+                 print(f"    [WARNING] Forced run {forced_path.name} invalid/missing, falling back to latest")
+
         if run_dir is None:
             raise FileNotFoundError(f"No complete DESeq2 run found for {dataset}")
         
-        # Load TPM map for patient dataset
+        
+        # Determine metadata path
+        metadata_path = None
+        if dataset == "GSE135251":
+             metadata_path = REPO_ROOT / "RNA-seq" / "patient_RNAseq" / "data" / "samplesheets" / "GSE135251_samplesheet.csv"
+        elif dataset == "GSE130970":
+             metadata_path = REPO_ROOT / "RNA-seq" / "patient_RNAseq" / "data" / "samplesheets" / "GSE130970_samplesheet.csv"
+        
         counts_dir = REPO_ROOT / "RNA-seq" / "patient_RNAseq" / "results" / dataset / "counts"
         counts_matrix = counts_dir / "gene_counts_matrix.txt"
         length_source = next(counts_dir.glob("individual/*_counts.txt"), None)
         if length_source:
             print(f"    Loading TPM from {counts_matrix.name}...")
-            tpm_map = load_tpm_map_from_counts_matrix(counts_matrix, length_source)
+            if metadata_path and metadata_path.exists():
+                print(f"    Using metadata for filtering: {metadata_path.name}")
+            tpm_map = load_tpm_map_from_counts_matrix(counts_matrix, length_source, metadata_path)
             print(f"    Loaded {len(tpm_map)} genes with TPM")
         else:
             print(f"    Warning: No length source found for {dataset}")
@@ -242,6 +321,16 @@ def main() -> None:
             "nas_low": run_dir / REQUIRED_PATIENT_REL[1],
             "fibrosis": run_dir / REQUIRED_PATIENT_REL[2],
         }
+        
+        # Specific override for GSE135251 fibrosis
+        if dataset == "GSE135251":
+             fibrosis_override = base_dir / "20260122_091723_corrected" / "fibrosis_strict/deseq2_results/Fibrosis_vs_Healthy/differential_expression.csv"
+             if fibrosis_override.exists():
+                 print(f"    [OVERRIDE] Using corrected fibrosis source: {fibrosis_override.parent.parent.parent.name}")
+                 sources["fibrosis"] = fibrosis_override
+             else:
+                 print(f"    [WARNING] Corrected fibrosis source not found: {fibrosis_override}")
+
         for key, src in sources.items():
             dest = DATA_DIR / f"{dataset.lower()}_{key}.csv.gz"
             write_patient_table(src, dest, tpm_map)
