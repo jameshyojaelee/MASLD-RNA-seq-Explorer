@@ -210,7 +210,8 @@ if _force_local:
     USE_BUNDLED_RESULTS = False
 else:
     USE_BUNDLED_RESULTS = DATA_DIR is not None and (
-        _force_bundled or not _local_star_results_available()
+        True # Always use bundled if available (it acts as the source of truth)
+        # _force_bundled or not _local_star_results_available()
     )
 
 
