@@ -9,8 +9,8 @@ OUT_FILE = "master_ortholog_matrix.csv.gz"
 
 # Dataset Mappings
 DATASETS = {
-    "Hoang_et_al": "data/gse130970_nas_high.csv.gz",
-    "Govaere_et_al": "data/gse135251_nas_high.csv.gz",
+    "Hoang_et_al": "/gpfs/commons/groups/sanjana_lab/Cas13/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE130970/nas_1_vs_0/results.csv",
+    "Govaere_et_al": "/gpfs/commons/groups/sanjana_lab/Cas13/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE135251/nas_1_vs_0/results.csv",
     "In_house_MCD": "data/mcd_week_pooled_combined.tsv.gz",
     "External_MCD_1": "data/other_mcd_gse156918.tsv.gz",
     "External_MCD_2": "data/other_mcd_gse205974.tsv.gz"
@@ -26,6 +26,37 @@ ORTHOLOG_FILE = "data/mouse_human_orthologs.tsv.gz"
 
 def strip_version(gene_id):
     return str(gene_id).strip().split(".")[0]
+
+def load_symbol_mapping():
+    # Load from pre-extracted mapping
+    try:
+        df = pd.read_csv("data/gene_symbol_mapping.csv")
+        return dict(zip(df['gene_id'].apply(strip_version), df['gene_symbol']))
+    except:
+        return {}
+
+def load_tpm_mapping(dataset_name):
+    # Map dataset name to old bundled file
+    path_map = {
+        "Hoang_et_al": "data/gse130970_nas_high.csv.gz",
+        "Govaere_et_al": "data/gse135251_nas_high.csv.gz"
+    }
+    path = path_map.get(dataset_name)
+    if not path: return {}
+    
+    try:
+        print(f"Loading TPM reference for {dataset_name} from {path}...")
+        df = pd.read_csv(path)
+        # Check for tpm col
+        cols = {c.lower(): c for c in df.columns}
+        tpm_col = cols.get("tpm_mean") or cols.get("tpm")
+        gene_col = cols.get("gene_id") or cols.get("gene")
+        
+        if tpm_col and gene_col:
+            return dict(zip(df[gene_col].apply(strip_version), df[tpm_col]))
+    except Exception as e:
+        print(f"Error loading TPMs: {e}")
+    return {}
 
 def load_orthologs():
     print("Loading orthologs...")
@@ -72,9 +103,24 @@ def main():
         
         # Keep minimal cols
         keep = ["common_id", f"{name}_lfc", f"{name}_padj"]
-        if f"{name}_tpm" in df.columns: keep.append(f"{name}_tpm")
+        if f"{name}_tpm" in df.columns: 
+            keep.append(f"{name}_tpm")
+        else:
+            # Try to load TPMs from reference
+            tpm_map = load_tpm_mapping(name)
+            if tpm_map:
+                print(f"Mapping TPMs for {name} ({len(tpm_map)} genes)...")
+                df[f"{name}_tpm"] = df["common_id"].map(tpm_map)
+                keep.append(f"{name}_tpm")
+        
         if "gene_symbol" in cols:
             df = df.rename(columns={cols["gene_symbol"]: f"{name}_symbol"})
+            keep.append(f"{name}_symbol")
+        else:
+            # Map symbols if missing
+            print(f"Mapping symbols for {name}...")
+            symbol_map = load_symbol_mapping()
+            df[f"{name}_symbol"] = df["common_id"].map(symbol_map)
             keep.append(f"{name}_symbol")
             
         dfs[name] = df[keep].copy()
