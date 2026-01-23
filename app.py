@@ -71,8 +71,7 @@ EXTERNAL_MCD_PATHS = {
 PATIENT_DATASETS = ["GSE130970", "GSE135251"]
 PATIENT_CROSS_DATASET_PAIR = ("GSE135251", "GSE130970")
 PATIENT_CROSS_COMPARISONS = {
-    "NAS high": "nas_high",
-    "NAS low": "nas_low",
+    "NAS 1+": "nas_1plus",
     "Fibrosis": "fibrosis",
 }
 PATIENT_DISPLAY_NAMES = {
@@ -95,13 +94,13 @@ BUNDLED_EXTERNAL_MCD_FILES = {
 
 BUNDLED_PATIENT_FILES = {
     "GSE130970": {
-        "nas_high": "gse130970_nas_high.csv.gz",
-        "nas_low": "gse130970_nas_low.csv.gz",
+        "nas_1plus": "gse130970_nas_high.csv.gz",
+        #"nas_low": "gse130970_nas_low.csv.gz",
         "fibrosis": "gse130970_fibrosis.csv.gz",
     },
     "GSE135251": {
-        "nas_high": "gse135251_nas_high.csv.gz",
-        "nas_low": "gse135251_nas_low.csv.gz",
+        "nas_1plus": "gse135251_nas_high.csv.gz",
+        #"nas_low": "gse135251_nas_low.csv.gz",
         "fibrosis": "gse135251_fibrosis.csv.gz",
     },
 }
@@ -192,14 +191,21 @@ def _local_star_results_available() -> bool:
     if not all(path.exists() for path in EXTERNAL_MCD_PATHS.values()):
         return False
     for dataset in PATIENT_DATASETS:
-        base_dir = ROOT / "RNA-seq" / "patient_RNAseq" / "results" / dataset / "deseq2_results"
         required = [
-            Path("nas_high/deseq2_results/NAS_4plus_vs_NAS_0/differential_expression.csv"),
-            Path("nas_low/deseq2_results/NAS_1to3_vs_NAS_0/differential_expression.csv"),
-            Path("fibrosis_strict/deseq2_results/Fibrosis_vs_Healthy/differential_expression.csv"),
+            Path("analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas") / dataset / "nas_1_vs_0/results.csv",
+            Path("results") / dataset / "deseq2_results/fibrosis_strict/deseq2_results/Fibrosis_vs_Healthy/differential_expression.csv",
         ]
-        latest = _latest_run_with_files(base_dir, required)
-        if latest is None:
+        # Check if files exist relative to patient_RNAseq root
+        # Base dir in _local is .../results/dataset/deseq2_results
+        # But our new files are in .../analysis/...
+        # We need to adjust the check logic or just hardcode the check here properly.
+        # Let's simplify: check absolute or relative to ROOT.
+        
+        base_rna = ROOT / "RNA-seq" / "patient_RNAseq"
+        new_res = base_rna / "analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas" / dataset / "nas_1_vs_0/results.csv"
+        old_fib = base_rna / "results" / dataset / "deseq2_results/fibrosis_strict/deseq2_results/Fibrosis_vs_Healthy/differential_expression.csv"
+        
+        if not new_res.exists():
             return False
     return True
 
@@ -818,25 +824,40 @@ def patient_paths(dataset: str) -> dict[str, Path] | None:
             return None
         return {
             "run_label": "bundled",
-            "nas_high": DATA_DIR / files["nas_high"],
-            "nas_low": DATA_DIR / files["nas_low"],
+            "nas_1plus": DATA_DIR / files["nas_1plus"],
+            #"nas_low": DATA_DIR / files["nas_low"],
             "fibrosis": DATA_DIR / files["fibrosis"],
         }
-    base_dir = ROOT / "RNA-seq" / "patient_RNAseq" / "results" / dataset / "deseq2_results"
-    required = [
-        Path("nas_high/deseq2_results/NAS_4plus_vs_NAS_0/differential_expression.csv"),
-        Path("nas_low/deseq2_results/NAS_1to3_vs_NAS_0/differential_expression.csv"),
-        Path("fibrosis_strict/deseq2_results/Fibrosis_vs_Healthy/differential_expression.csv"),
-    ]
-    latest = _latest_run_with_files(base_dir, required)
-    if latest is None:
-        return None
-    return {
-        "run": latest,
-        "nas_high": latest / required[0],
-        "nas_low": latest / required[1],
-        "fibrosis": latest / required[2],
+    # Updated to use the new NAS 1+ analysis located in analysis/differential_expression/current
+    base_rna = ROOT / "RNA-seq" / "patient_RNAseq"
+    nas_1plus_path = base_rna / "analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas" / dataset / "nas_1_vs_0/results.csv"
+    
+    # Fibrosis is still in the old location (implicit latest run check logic needed? 
+    # Or just grab the known path if we assume standard structure).
+    # The original code searched for 'latest run'. Let's try to preserve that for fibrosis if possible, 
+    # or just assume the 'fibrosis_strict' folder structure is stable.
+    # The previous check looked in .../results/dataset/deseq2_results/RUN_ID/...
+    # Let's find the latest run for fibrosis.
+    
+    res_base = base_rna / "results" / dataset / "deseq2_results"
+    fib_req = Path("fibrosis_strict/deseq2_results/Fibrosis_vs_Healthy/differential_expression.csv")
+    latest_fib = _latest_run_with_files(res_base, [fib_req])
+    
+    if not nas_1plus_path.exists():
+        return {"error": f"Missing NAS 1+ results: {nas_1plus_path}"}
+        
+    paths = {
+        "run": "manual_sensitivity_analysis",
+        "nas_1plus": nas_1plus_path,
     }
+    
+    if latest_fib:
+        paths["fibrosis"] = latest_fib / fib_req
+    else:
+        # Fallback or error?
+        paths["fibrosis_error"] = "No fibrosis results found"
+        
+    return paths
 
 
 def slugify(text: str) -> str:
@@ -1033,17 +1054,20 @@ for dataset in PATIENT_DATASETS:
     if missing:
         patient_data[dataset] = {"paths": paths, "error": f"Missing files: {', '.join(missing)}"}
         continue
-    nas_high = load_patient_csv(paths["nas_high"])
-    nas_low = load_patient_csv(paths["nas_low"])
-    fibrosis = load_patient_csv(paths["fibrosis"])
+    nas_1plus = load_patient_csv(paths["nas_1plus"])
+    # nas_low removed
+    
     tpm_map = patient_tpm_maps.get(dataset)
-    nas_high = add_tpm_from_map(nas_high, tpm_map)
-    nas_low = add_tpm_from_map(nas_low, tpm_map)
-    fibrosis = add_tpm_from_map(fibrosis, tpm_map)
+    nas_1plus = add_tpm_from_map(nas_1plus, tpm_map)
+    
+    fibrosis = None
+    if "fibrosis" in paths:
+        fibrosis = load_patient_csv(paths["fibrosis"])
+        fibrosis = add_tpm_from_map(fibrosis, tpm_map)
+
     patient_data[dataset] = {
         "paths": paths,
-        "nas_high": nas_high,
-        "nas_low": nas_low,
+        "nas_1plus": nas_1plus,
         "fibrosis": fibrosis,
     }
 
@@ -1070,7 +1094,7 @@ def gather_tpm_max() -> float:
     for info in patient_data.values():
         if info.get("error") or info.get("paths") is None:
             continue
-        for key in ("nas_high", "nas_low", "fibrosis"):
+        for key in ("nas_1plus", "fibrosis"):
             df = info.get(key)
             if isinstance(df, pd.DataFrame) and "tpm_mean" in df.columns:
                 candidates.append(df["tpm_mean"].max())
@@ -1137,8 +1161,9 @@ with col_human:
     for dataset, info in patient_data.items():
         if not info.get("error") and info.get("paths"):
             display_name = PATIENT_DISPLAY_NAMES.get(dataset, dataset)
-            opts.append((f"{display_name} NAS High", make_label("Patient", dataset, "NAS high (upregulated)")))
-            opts.append((f"{display_name} Fibrosis", make_label("Patient", dataset, "Fibrosis (upregulated)")))
+            opts.append((f"{display_name} NAS 1+", make_label("Patient", dataset, "NAS 1+ (upregulated)")))
+            if info.get("fibrosis") is not None:
+                opts.append((f"{display_name} Fibrosis", make_label("Patient", dataset, "Fibrosis (upregulated)")))
     
     if opts:
         active_labels.extend(selection_component("Patient Cohorts", opts, "patient"))
@@ -1155,7 +1180,7 @@ with col_human:
 
 # ===== Global Sliders + Inputs =====
 padj_cutoff = synced_cutoff(
-    "Global padj cutoff (MCD + NAS high) (default 0.1)",
+    "Global padj cutoff (MCD + NAS 1+) (default 0.1)",
     0.0,
     0.2,
     0.1,
@@ -1204,7 +1229,7 @@ for dataset, info in patient_data.items():
         continue
     key = f"patient_{slugify(dataset)}"
     tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
-    if tpm_eff > 0 and "tpm_mean" not in info["nas_high"].columns:
+    if tpm_eff > 0 and "tpm_mean" not in info["nas_1plus"].columns:
         missing_tpm.append(dataset)
 if missing_tpm:
     st.warning(
@@ -1257,9 +1282,9 @@ with st.expander("Dataset-specific overrides (Advanced)"):
                 use_override = st.checkbox(f"{dataset}", key=f"{key}_override")
             if use_override:
                 with c2:
-                    st.number_input(f"NAS high padj", 0.0, 1.0, padj_cutoff, 0.005, key=f"{key}_padj")
+                    st.number_input(f"NAS 1+ padj", 0.0, 1.0, padj_cutoff, 0.005, key=f"{key}_padj")
                 with c3:
-                    st.number_input(f"NAS high log2FC", 0.0, 10.0, log2fc_cutoff, 0.1, key=f"{key}_lfc")
+                    st.number_input(f"NAS 1+ log2FC", 0.0, 10.0, log2fc_cutoff, 0.1, key=f"{key}_lfc")
                 with c4:
                     st.number_input(f"Top-right global padj", 0.0, 1.0, 0.05, 0.005, key=f"{key}_top_padj")
                 with c5:
@@ -1378,79 +1403,66 @@ for dataset, info in patient_data.items():
     top_padj = get_topright_padj(key, default_padj=padj_cutoff)
     tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
 
-    nas_high_df = info["nas_high"]
-    nas_low_df = info["nas_low"]
-    fibrosis_df = info["fibrosis"]
+    nas_1plus_df = info["nas_1plus"]
+    # nas_low_df = info["nas_low"]
+    fibrosis_df = info.get("fibrosis")
 
-    nas_high_set = upregulated_set(nas_high_df, nas_padj, nas_lfc, tpm_eff)
-    fibrosis_set = upregulated_set(fibrosis_df, nas_padj, nas_lfc, tpm_eff)
-    nas_high_vs_fibrosis_set = top_right_set(
-        nas_high_df, fibrosis_df, nas_lfc, padj_cutoff=top_padj, tpm_cutoff=tpm_eff
-    )
-    nas_high_vs_nas_low_set = top_right_set(
-        nas_high_df, nas_low_df, nas_lfc, padj_cutoff=top_padj, tpm_cutoff=tpm_eff
-    )
-
+    tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
+    nas_1plus_set = upregulated_set(nas_1plus_df, nas_padj, nas_lfc, tpm_eff)
+    
     summary_rows.append(
         {
             "group": "Patient",
             "dataset": dataset,
-            "analysis": "NAS high (upregulated)",
+            "analysis": "NAS 1+ (upregulated)",
             "padj": nas_padj,
             "log2FC": nas_lfc,
-            "tpm": tpm_eff if "tpm_mean" in nas_high_df.columns else "missing",
-            "count": len(nas_high_set),
+            "tpm": tpm_eff if "tpm_mean" in nas_1plus_df.columns else "missing",
+            "count": len(nas_1plus_set),
         }
     )
-    summary_sets[make_label("Patient", dataset, "NAS high (upregulated)")] = {
+    summary_sets[make_label("Patient", dataset, "NAS 1+ (upregulated)")] = {
         "species": "human",
-        "genes": nas_high_set,
+        "genes": nas_1plus_set,
     }
-    summary_rows.append(
-        {
-            "group": "Patient",
-            "dataset": dataset,
-            "analysis": "Fibrosis (upregulated)",
-            "padj": nas_padj,
-            "log2FC": nas_lfc,
-            "tpm": tpm_eff if "tpm_mean" in fibrosis_df.columns else "missing",
-            "count": len(fibrosis_set),
+
+    if fibrosis_df is not None:
+        fibrosis_set = upregulated_set(fibrosis_df, nas_padj, nas_lfc, tpm_eff)
+        nas_1plus_vs_fibrosis_set = top_right_set(
+            nas_1plus_df, fibrosis_df, nas_lfc, padj_cutoff=top_padj, tpm_cutoff=tpm_eff
+        )
+        
+        summary_rows.append(
+            {
+                "group": "Patient",
+                "dataset": dataset,
+                "analysis": "Fibrosis (upregulated)",
+                "padj": nas_padj,
+                "log2FC": nas_lfc,
+                "tpm": tpm_eff if "tpm_mean" in fibrosis_df.columns else "missing",
+                "count": len(fibrosis_set),
+            }
+        )
+        summary_sets[make_label("Patient", dataset, "Fibrosis (upregulated)")] = {
+            "species": "human",
+            "genes": fibrosis_set,
         }
-    )
-    summary_sets[make_label("Patient", dataset, "Fibrosis (upregulated)")] = {
-        "species": "human",
-        "genes": fibrosis_set,
-    }
-    summary_rows.append(
-        {
-            "group": "Patient",
-            "dataset": dataset,
-            "analysis": "NAS high vs Fibrosis (top-right)",
-            "padj": top_padj,
-            "log2FC": nas_lfc,
-            "tpm": tpm_eff if "tpm_mean" in nas_high_df.columns else "missing",
-            "count": len(nas_high_vs_fibrosis_set),
+        
+        summary_rows.append(
+            {
+                "group": "Patient",
+                "dataset": dataset,
+                "analysis": "NAS 1+ vs Fibrosis (top-right)",
+                "padj": top_padj,
+                "log2FC": nas_lfc,
+                "tpm": tpm_eff if "tpm_mean" in nas_1plus_df.columns else "missing",
+                "count": len(nas_1plus_vs_fibrosis_set),
+            }
+        )
+        summary_sets[make_label("Patient", dataset, "NAS 1+ vs Fibrosis (top-right)")] = {
+            "species": "human",
+            "genes": nas_1plus_vs_fibrosis_set,
         }
-    )
-    summary_sets[make_label("Patient", dataset, "NAS high vs Fibrosis (top-right)")] = {
-        "species": "human",
-        "genes": nas_high_vs_fibrosis_set,
-    }
-    summary_rows.append(
-        {
-            "group": "Patient",
-            "dataset": dataset,
-            "analysis": "NAS high vs NAS low (top-right)",
-            "padj": top_padj,
-            "log2FC": nas_lfc,
-            "tpm": tpm_eff if "tpm_mean" in nas_high_df.columns else "missing",
-            "count": len(nas_high_vs_nas_low_set),
-        }
-    )
-    summary_sets[make_label("Patient", dataset, "NAS high vs NAS low (top-right)")] = {
-        "species": "human",
-        "genes": nas_high_vs_nas_low_set,
-    }
 
 if gwas_genes and gwas_label is not None:
     summary_rows.append(
@@ -1762,9 +1774,9 @@ if summary_rows:
                         key = f"patient_{slugify(dataset)}"
                         nas_padj, nas_lfc = get_cutoffs(key, padj_cutoff, log2fc_cutoff)
                         tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
-                        nas_label = make_label("Patient", dataset, "NAS high (upregulated)")
+                        nas_label = make_label("Patient", dataset, "NAS 1+ (upregulated)")
                         plot_sources[nas_label] = {
-                            "df": info["nas_high"],
+                            "df": info["nas_1plus"],
                             "padj": nas_padj,
                             "log2fc": nas_lfc,
                             "tpm": tpm_eff,
@@ -2015,7 +2027,7 @@ if summary_rows:
                             if info.get("error") or info.get("paths") is None:
                                 continue
                             if not _extend_tpm_rows(dataset, patient_tpm_maps.get(dataset)):
-                                df = info["nas_high"]
+                                df = info["nas_1plus"]
                                 if "tpm_mean" in df.columns:
                                     tpm_rows.extend(
                                         {"dataset": dataset, "tpm": float(val)} for val in df["tpm_mean"].dropna().values
@@ -2109,10 +2121,10 @@ if summary_rows:
                             top_padj = get_topright_padj(key, default_padj=padj_cutoff)
                             tpm_eff = get_tpm_cutoff(key, tpm_cutoff)
 
-                            if make_label("Patient", dataset, "NAS high (upregulated)") in selected_labels:
-                                series = log2fc_series(info["nas_high"], nas_padj, tpm_eff, log2fc_cutoff=nas_lfc)
+                            if make_label("Patient", dataset, "NAS 1+ (upregulated)") in selected_labels:
+                                series = log2fc_series(info["nas_1plus"], nas_padj, tpm_eff, log2fc_cutoff=nas_lfc)
                                 if not series.empty:
-                                    name = f"Patient | {dataset} NAS high"
+                                    name = f"Patient | {dataset} NAS 1+"
                                     log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
                                     log_order.append(name)
 
@@ -2123,19 +2135,18 @@ if summary_rows:
                                     log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
                                     log_order.append(name)
 
-                            for label, df in (("NAS low", info["nas_low"]), ("Fibrosis", info["fibrosis"])):
-                                compare_label = (
-                                    "NAS high vs NAS low (top-right)"
-                                    if label == "NAS low"
-                                    else "NAS high vs Fibrosis (top-right)"
-                                )
-                                if make_label("Patient", dataset, compare_label) not in selected_labels:
-                                    continue
-                                series = log2fc_series(df, top_padj, tpm_eff, log2fc_cutoff=nas_lfc)
-                                if not series.empty:
-                                    name = f"Patient | {dataset} {label}"
-                                    log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
-                                    log_order.append(name)
+                            # Comparison: only keeping Fibrosis vs NAS 1+ if applicable
+                            # Removed NAS low logic
+                            label = "Fibrosis"
+                            df = info["fibrosis"]
+                            if df is not None:
+                                compare_label = "NAS 1+ vs Fibrosis (top-right)"
+                                if make_label("Patient", dataset, compare_label) in selected_labels:
+                                    series = log2fc_series(df, top_padj, tpm_eff, log2fc_cutoff=nas_lfc)
+                                    if not series.empty:
+                                        name = f"Patient | {dataset} {label}"
+                                        log_rows.extend({"analysis": name, "group": "Patient", "log2FC": float(v)} for v in series.values)
+                                        log_order.append(name)
 
                         if log_rows:
                             log_df = pd.DataFrame(log_rows)
@@ -2259,26 +2270,22 @@ with st.expander("Sanity check (padj=0.1, log2FC=0)"):
         if info.get("error") or info.get("paths") is None:
             st.write("Unavailable due to missing data.")
             continue
-        nas_high_df = info["nas_high"]
-        nas_low_df = info["nas_low"]
+        nas_1plus_df = info["nas_1plus"]
+        # nas_low_df = info["nas_low"]
         fibrosis_df = info["fibrosis"]
         patient_counts_sc = pd.DataFrame(
             [
                 {
-                    "analysis": "NAS high (upregulated)",
-                    "count": len(upregulated_set(nas_high_df, 0.1, 0.0, tpm_cutoff)),
+                    "analysis": "NAS 1+ (upregulated)",
+                    "count": len(upregulated_set(nas_1plus_df, 0.1, 0.0, tpm_cutoff)),
                 },
                 {
                     "analysis": "Fibrosis (upregulated)",
                     "count": len(upregulated_set(fibrosis_df, 0.1, 0.0, tpm_cutoff)),
                 },
                 {
-                    "analysis": "NAS high vs Fibrosis (top-right)",
-                    "count": top_right_count(nas_high_df, fibrosis_df, 0.0, padj_cutoff=0.1, tpm_cutoff=tpm_cutoff),
-                },
-                {
-                    "analysis": "NAS high vs NAS low (top-right)",
-                    "count": top_right_count(nas_high_df, nas_low_df, 0.0, padj_cutoff=0.1, tpm_cutoff=tpm_cutoff),
+                    "analysis": "NAS 1+ vs Fibrosis (top-right)",
+                    "count": top_right_count(nas_1plus_df, fibrosis_df, 0.0, padj_cutoff=0.1, tpm_cutoff=tpm_cutoff),
                 },
             ]
         )
