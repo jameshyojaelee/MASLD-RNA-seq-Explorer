@@ -8,11 +8,11 @@ USE_BUNDLED_RESULTS = True
 
 BUNDLED_PATIENT_FILES = {
     "GSE130970": {
-        "nas_1plus": "/gpfs/commons/groups/sanjana_lab/Cas13/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE130970/nas_1_vs_0/results.csv",
+        "nas_1plus": "/gpfs/commons/groups/sanjana_lab/Cas13/MASLD_library_design/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE130970/nas_1_vs_0/results.csv",
         "fibrosis": "gse130970_fibrosis.csv.gz",
     },
     "GSE135251": {
-        "nas_1plus": "/gpfs/commons/groups/sanjana_lab/Cas13/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE135251/nas_1_vs_0/results.csv",
+        "nas_1plus": "/gpfs/commons/groups/sanjana_lab/Cas13/MASLD_library_design/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE135251/nas_1_vs_0/results.csv",
         "fibrosis": "gse135251_fibrosis.csv.gz",
     },
 }

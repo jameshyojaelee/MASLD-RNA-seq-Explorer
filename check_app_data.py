@@ -4,11 +4,11 @@ import os
 
 # Paths
 # Paths
-data_dir = "/gpfs/commons/groups/sanjana_lab/Cas13/streamlit_deg_explorer/data"
-app_dir = "/gpfs/commons/groups/sanjana_lab/Cas13/streamlit_deg_explorer"
+data_dir = "/gpfs/commons/groups/sanjana_lab/Cas13/MASLD_library_design/streamlit_deg_explorer/data"
+app_dir = "/gpfs/commons/groups/sanjana_lab/Cas13/MASLD_library_design/streamlit_deg_explorer"
 
-hoang_raw_path = "/gpfs/commons/groups/sanjana_lab/Cas13/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE130970/nas_1_vs_0/results.csv"
-govaere_raw_path = "/gpfs/commons/groups/sanjana_lab/Cas13/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE135251/nas_1_vs_0/results.csv"
+hoang_raw_path = "/gpfs/commons/groups/sanjana_lab/Cas13/MASLD_library_design/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE130970/nas_1_vs_0/results.csv"
+govaere_raw_path = "/gpfs/commons/groups/sanjana_lab/Cas13/MASLD_library_design/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE135251/nas_1_vs_0/results.csv"
 
 master_path = os.path.join(app_dir, "master_ortholog_matrix.csv.gz")
 

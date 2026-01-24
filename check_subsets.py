@@ -3,13 +3,13 @@ import pandas as pd
 import os
 
 # Paths
-hoang_bundled_path = "/gpfs/commons/groups/sanjana_lab/Cas13/streamlit_deg_explorer/data/gse130970_nas_high.csv.gz"
-govaere_bundled_path = "/gpfs/commons/groups/sanjana_lab/Cas13/streamlit_deg_explorer/data/gse135251_nas_high.csv.gz"
-master_path = "/gpfs/commons/groups/sanjana_lab/Cas13/streamlit_deg_explorer/master_ortholog_matrix.csv.gz"
+hoang_bundled_path = "/gpfs/commons/groups/sanjana_lab/Cas13/MASLD_library_design/streamlit_deg_explorer/data/gse130970_nas_high.csv.gz"
+govaere_bundled_path = "/gpfs/commons/groups/sanjana_lab/Cas13/MASLD_library_design/streamlit_deg_explorer/data/gse135251_nas_high.csv.gz"
+master_path = "/gpfs/commons/groups/sanjana_lab/Cas13/MASLD_library_design/streamlit_deg_explorer/master_ortholog_matrix.csv.gz"
 
 # NAS results
-hoang_nas1_path = "/gpfs/commons/groups/sanjana_lab/Cas13/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE130970/nas_1_vs_0/results.csv"
-hoang_nas4_path = "/gpfs/commons/groups/sanjana_lab/Cas13/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE130970/nas_4_vs_0/results.csv"
+hoang_nas1_path = "/gpfs/commons/groups/sanjana_lab/Cas13/MASLD_library_design/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE130970/nas_1_vs_0/results.csv"
+hoang_nas4_path = "/gpfs/commons/groups/sanjana_lab/Cas13/MASLD_library_design/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE130970/nas_4_vs_0/results.csv"
 
 def load_set(path, lfc_col, padj_col, filter=True):
     try:

@@ -9,8 +9,8 @@ OUT_FILE = "master_ortholog_matrix.csv.gz"
 
 # Dataset Mappings
 DATASETS = {
-    "Hoang_et_al": "/gpfs/commons/groups/sanjana_lab/Cas13/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE130970/nas_1_vs_0/results.csv",
-    "Govaere_et_al": "/gpfs/commons/groups/sanjana_lab/Cas13/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE135251/nas_1_vs_0/results.csv",
+    "Hoang_et_al": "/gpfs/commons/groups/sanjana_lab/Cas13/MASLD_library_design/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE130970/nas_1_vs_0/results.csv",
+    "Govaere_et_al": "/gpfs/commons/groups/sanjana_lab/Cas13/MASLD_library_design/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE135251/nas_1_vs_0/results.csv",
     "In_house_MCD": "data/mcd_week_pooled_combined.tsv.gz",
     "External_MCD_1": "data/other_mcd_gse156918.tsv.gz",
     "External_MCD_2": "data/other_mcd_gse205974.tsv.gz"
