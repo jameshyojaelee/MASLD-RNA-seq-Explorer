@@ -3,15 +3,16 @@ import pandas as pd
 import os
 
 # Paths
+# Paths
 data_dir = "/gpfs/commons/groups/sanjana_lab/Cas13/streamlit_deg_explorer/data"
 app_dir = "/gpfs/commons/groups/sanjana_lab/Cas13/streamlit_deg_explorer"
 
-hoang_bundled_path = os.path.join(data_dir, "gse130970_nas_high.csv.gz")
-govaere_bundled_path = os.path.join(data_dir, "gse135251_nas_high.csv.gz")
+hoang_raw_path = "/gpfs/commons/groups/sanjana_lab/Cas13/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE130970/nas_1_vs_0/results.csv"
+govaere_raw_path = "/gpfs/commons/groups/sanjana_lab/Cas13/RNA-seq/patient_RNAseq/analysis/differential_expression/current/nas_threshold_sensitivity/cumulative_nas/GSE135251/nas_1_vs_0/results.csv"
+
 master_path = os.path.join(app_dir, "master_ortholog_matrix.csv.gz")
 
 # Reference values for Hoang
-# NAS 4+ vs 0: ~1185 DEGs (padj < 0.1, LFC > 0.8)
 # NAS 1+ vs 0: ~745 DEGs (padj < 0.1, LFC > 0.8)
 
 PADJ_CUT = 0.1
@@ -52,11 +53,11 @@ def check_file(path, name, lfc_col, padj_col):
     except Exception as e:
         print(f"  Error reading file: {e}")
 
-# 1. Bundled Hoang
-check_file(hoang_bundled_path, "Bundled Hoang (nas_high)", "log2FoldChange", "padj")
+# 1. Raw Hoang
+check_file(hoang_raw_path, "Raw Hoang (NAS 1+)", "log2FoldChange", "padj")
 
-# 2. Bundled Govaere
-check_file(govaere_bundled_path, "Bundled Govaere (nas_high)", "log2FoldChange", "padj")
+# 2. Raw Govaere
+check_file(govaere_raw_path, "Raw Govaere (NAS 1+)", "log2FoldChange", "padj")
 
 # 3. Master Matrix Hoang
 check_file(master_path, "Master Matrix (Hoang)", "Hoang_et_al_lfc", "Hoang_et_al_padj")
